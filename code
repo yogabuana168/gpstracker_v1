@@ -1,0 +1,188 @@
+// Library untuk modul SIM808, parsing data GPS, komunikasi serial pada pin digital, dan manajemen data JSON
+#include <DFRobot_SIM808.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+#include <ArduinoJson.h>
+
+// Inisialisasi modul SIM808 dan GPS
+DFRobot_SIM808 sim808(&Serial1);
+SoftwareSerial ss(10, -1); // Pin 10 untuk RX, TX tidak digunakan
+TinyGPSPlus gps;
+
+// Variabel untuk manajemen buffer dan interval waktu
+const int bufferSize = 256;
+unsigned long lastDisplayTime = 0;
+const long displayInterval = 120000; // 2 menit
+
+// Buffer untuk penyimpanan data GPS jika sinyal buruk
+const int maxBuffer = 4;
+String dataBuffer[maxBuffer];
+int bufferIndex = 0;
+
+// Variabel untuk menyimpan kualitas sinyal
+int globalSignalQuality = -1;
+
+void setup() {
+    // Inisialisasi komunikasi serial
+    Serial1.begin(9600);
+    Serial.begin(9600);
+    delay(10000); // Delay untuk menunggu modul siap
+    Serial.println("start ------ ");
+    inisialisasiSIM808();    // Inisialisasi modul SIM808
+    Serial.println("Menginisialisasi modul GPS...");
+    ss.begin(9600); // Mulai komunikasi dengan modul GPS
+}
+
+void loop() {
+    // Membaca data dari modul GPS dan mengolahnya
+    while (ss.available() > 0) {
+        char c = ss.read();
+        gps.encode(c);
+    }
+
+    // Menampilkan data GPS setiap 2 menit
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastDisplayTime >= displayInterval) {
+        lastDisplayTime = currentMillis;
+        // Jika ada update lokasi dari GPS
+        if (gps.location.isUpdated()) {
+            // Cek kualitas sinyal seluler
+            globalSignalQuality = cekSinyal();
+            
+            // Dapatkan data GPS
+            String dataGPS = getDataGPS(); 
+            // Jika sinyal baik, kirim data ke server, jika tidak, simpan ke buffer dan lakukan rekoneksi
+            if (globalSignalQuality > 0) {
+                kirimDataDariBuffer();
+                kirimDataKeServer(dataGPS);
+            } else {
+                simpanDataKeBuffer(dataGPS);
+                rekoneksi();
+            }
+        }
+    }
+}
+
+// Fungsi untuk memeriksa kualitas sinyal seluler
+int cekSinyal() {
+    // Membersihkan buffer Serial1
+    while(Serial1.available()) {
+        Serial1.read();
+    }
+    // Mengirim perintah AT untuk cek sinyal
+    Serial1.println("AT+CSQ");
+    
+    // Tunggu respons dari modul
+    unsigned long startTime = millis();
+    while (millis() - startTime < 10000) {
+        if (Serial1.available()) {
+            String res = Serial1.readStringUntil('\n');
+            // Jika respons adalah kualitas sinyal, tampilkan dan kembalikan nilai tersebut
+            if (res.startsWith("+CSQ:")) {
+                int signalQuality = res.substring(6, res.indexOf(",")).toInt();
+                Serial.print("Signal Quality: ");
+                Serial.println(signalQuality);
+                return signalQuality;
+            }
+        }
+    }
+    Serial.println("No response for signal quality or timeout occurred.");
+    return -1; // Jika tidak ada respons, kembalikan -1
+}
+
+// Fungsi untuk menginisialisasi ulang modul SIM808 jika terjadi masalah konektivitas
+void rekoneksi() {
+    Serial.println("Melakukan rekoneksi...");
+    inisialisasiSIM808();
+    Serial.println("Rekoneksi selesai.");
+}
+
+// Fungsi untuk menampilkan data GPS
+void tampilkanDataGPS() {
+    // Penyusunan data GPS ke format JSON
+    StaticJsonDocument<bufferSize> jsonDoc;
+    jsonDoc["device_id"] = 101;
+    jsonDoc["datetime"] = getFormattedDate(gps);
+    // ... (sisanya sama dengan getDataGPS)
+    serializeJson(jsonDoc, jsonString);
+
+    // Cek kualitas sinyal sebelum mengirim data
+    if (!cekSinyal()) {
+        // Jika sinyal buruk, simpan data ke buffer
+        if (bufferIndex < maxBuffer) {
+            dataBuffer[bufferIndex++] = jsonString;
+        }
+        return;
+    }
+    // Jika sinyal baik, kirim data ke server
+    kirimDataKeServer(jsonString);
+}
+
+// Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format JSON
+String getDataGPS() {
+    // Penyusunan data GPS ke format JSON
+    StaticJsonDocument<bufferSize> jsonDoc;
+    jsonDoc["device_id"] = 101;
+    jsonDoc["datetime"] = getFormattedDate(gps);
+    // ... (sisanya sama dengan tampilkanDataGPS)
+    serializeJson(jsonDoc, jsonString);
+
+    // Cetak string JSON ke Serial Monitor untuk debugging
+    Serial.println("JSON String to send:");
+    Serial.println(jsonString);
+
+    return jsonString;
+}
+
+// Fungsi untuk menyimpan data ke buffer lokal
+void simpanDataKeBuffer(const String& data) {
+    if (bufferIndex < maxBuffer) {
+        dataBuffer[bufferIndex++] = data;
+    }
+}
+
+// Fungsi untuk mengirim data dari buffer ke server
+void kirimDataDariBuffer() {
+    for (int i = 0; i < bufferIndex; i++) {
+        kirimDataKeServer(dataBuffer[i]);
+    }
+    bufferIndex = 0; // Reset buffer setelah data terkirim
+}
+
+// Fungsi untuk mengirim data ke server melalui HTTP POST
+void kirimDataKeServer(const String& data) {
+    // Persiapan dan pengiriman data ke server menggunakan perintah AT
+    // ... (logika pengiriman data ke server)
+}
+
+// Fungsi untuk menginisialisasi modul SIM808
+void inisialisasiSIM808() {
+    // Mengatur modul SIM808 untuk komunikasi dan pengiriman data
+    // ... (logika inisialisasi modul SIM808)
+}
+
+// Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
+String getFormattedDate(const TinyGPSPlus &gps) {
+    // Mengonversi data waktu dari GPS ke string
+    char dateBuffer[32];
+    sprintf(dateBuffer, "%04d-%02d-%02dT%02d:%02d:%02dZ", gps.date.year(), gps.date.month(), gps.date.day(),
+            gps.time.hour(), gps.time.minute(), gps.time.second());
+    return String(dateBuffer);
+}
+
+// Fungsi utilitas untuk mengirim perintah AT ke modul SIM808 dan menunggu respons
+bool kirimPerintahAT(const char* perintah, const char* respons, unsigned long timeout) {
+    Serial1.println(perintah);
+    // Menunggu dan memeriksa respons dari modul SIM808
+    unsigned long start = millis();
+    while (millis() - start < timeout) {
+        if (Serial1.available()) {
+            String res = Serial1.readString();
+            Serial.print(res);
+            if (res.indexOf(respons) != -1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
