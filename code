@@ -103,7 +103,16 @@ void tampilkanDataGPS() {
     StaticJsonDocument<bufferSize> jsonDoc;
     jsonDoc["device_id"] = 101;
     jsonDoc["datetime"] = getFormattedDate(gps);
-    // ... (sisanya sama dengan getDataGPS)
+    jsonDoc["lat"] = gps.location.lat();
+    jsonDoc["lng"] = gps.location.lng();
+    jsonDoc["speed_knots"] = gps.speed.knots();
+    jsonDoc["course"] = gps.course.deg();
+    // jsonDoc["altitude"] = gps.altitude.meters();
+    jsonDoc["satellites"] = gps.satellites.value();
+    jsonDoc["HDOP"] = gps.hdop.value();    
+    jsonDoc["sinyal"] = globalSignalQuality; // Use the globalSignalQuality variable
+
+    String jsonString;
     serializeJson(jsonDoc, jsonString);
 
     // Cek kualitas sinyal sebelum mengirim data
@@ -124,7 +133,16 @@ String getDataGPS() {
     StaticJsonDocument<bufferSize> jsonDoc;
     jsonDoc["device_id"] = 101;
     jsonDoc["datetime"] = getFormattedDate(gps);
-    // ... (sisanya sama dengan tampilkanDataGPS)
+    jsonDoc["lat"] = gps.location.lat();
+    jsonDoc["lng"] = gps.location.lng();
+    jsonDoc["speed_knots"] = gps.speed.knots();
+    jsonDoc["course"] = gps.course.deg();
+    // jsonDoc["altitude"] = gps.altitude.meters();
+    jsonDoc["satellites"] = gps.satellites.value();
+    jsonDoc["HDOP"] = gps.hdop.value();    
+    jsonDoc["sinyal"] = globalSignalQuality;
+
+    String jsonString;
     serializeJson(jsonDoc, jsonString);
 
     // Cetak string JSON ke Serial Monitor untuk debugging
@@ -151,14 +169,55 @@ void kirimDataDariBuffer() {
 
 // Fungsi untuk mengirim data ke server melalui HTTP POST
 void kirimDataKeServer(const String& data) {
-    // Persiapan dan pengiriman data ke server menggunakan perintah AT
-    // ... (logika pengiriman data ke server)
+    int dataLength = data.length();
+    String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
+
+    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
+    delay(1000);
+
+    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://track.gpscenter.id/api/data.php\"", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
+    kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000);
+
+    Serial1.print(data);
+    delay(1000);
+
+    kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000);
+    kirimPerintahAT("AT+HTTPREAD", "OK", 5000);
+
+    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
 }
 
 // Fungsi untuk menginisialisasi modul SIM808
 void inisialisasiSIM808() {
-    // Mengatur modul SIM808 untuk komunikasi dan pengiriman data
-    // ... (logika inisialisasi modul SIM808)
+    delay(10000);
+    Serial.println("Menginisialisasi SIM808...");
+
+    kirimPerintahAT("AT+CFUN=0", "OK", 2000);
+    delay(10000);
+
+    kirimPerintahAT("AT+CFUN=1", "OK", 2000);
+    delay(10000);
+
+    delay(2000);
+    kirimPerintahAT("AT+CFUN=1", "OK", 2000);
+    delay(3000);
+
+    kirimPerintahAT("AT+CSQ", "OK", 2000);
+    kirimPerintahAT("AT+CMGF=1", "OK", 2000);
+
+    kirimPerintahAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"APN\",\"internet\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
+
+    kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000);
+
+    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    delay(2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
 }
 
 // Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
