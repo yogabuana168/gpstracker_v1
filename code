@@ -22,6 +22,9 @@ int bufferIndex = 0;
 // Variabel untuk menyimpan kualitas sinyal
 int globalSignalQuality = -1;
 
+// Global variable untuk menampung respons terakhir dari HTTPACTION
+String httpActionResponse = "";
+
 void setup() {
     // Inisialisasi komunikasi serial
     Serial1.begin(9600);
@@ -172,22 +175,98 @@ void kirimDataKeServer(const String& data) {
     int dataLength = data.length();
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
 
+    // Pastikan tidak ada sesi HTTP yang masih berjalan
     kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
     delay(1000);
 
+    // Inisialisasi sesi HTTP baru
     kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
     kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
     kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://track.gpscenter.id/api/data.php\"", "OK", 2000);
     kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
-    kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000);
 
-    Serial1.print(data);
-    delay(1000);
+    // Siapkan untuk mengirim data
+    if (kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000)) {
+        // Kirim data JSON ke modul SIM808
+        Serial1.print(data);
+        delay(1000); // Tunggu data terkirim
 
-    kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000);
-    kirimPerintahAT("AT+HTTPREAD", "OK", 5000);
+        // Mulai aksi HTTP POST
+        kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000);
 
+        // Tunggu respons dari aksi HTTP POST
+        unsigned long startWaitTime = millis();
+        while (millis() - startWaitTime < 60000) { // Tunggu maksimal 60 detik untuk respons
+            if (Serial1.available()) {
+                String line = Serial1.readStringUntil('\n');
+                if (line.startsWith("+HTTPACTION:")) {
+                    httpActionResponse = line;
+                    break; // Keluar dari loop jika respons diterima
+                }
+            }
+        }
+
+        if (httpActionResponse.length() > 0) {
+            // Respons diterima, cek statusnya
+            int statusCode = httpActionResponse.substring(httpActionResponse.indexOf(",") + 1, httpActionResponse.lastIndexOf(",")).toInt();
+            if (statusCode == 200) {
+                Serial.println("Data successfully sent to server.");
+            } else {
+                // Status bukan 200, terjadi kesalahan
+                Serial.print("HTTP POST failed with status code: ");
+                Serial.println(statusCode);
+                inisialisasiSIM808();
+            }
+        } else {
+            // Tidak ada respons diterima, terjadi timeout
+            Serial.println("HTTP POST response timeout, reinitializing SIM808.");
+            inisialisasiSIM808();
+        }
+    } else {
+        // HTTPDATA command gagal, lakukan inisialisasi ulang
+        Serial.println("HTTPDATA command failed, reinitializing SIM808.");
+        inisialisasiSIM808();
+    }
+
+    // Tutup sesi HTTP setelah selesai
     kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
+}
+
+// Fungsi untuk memeriksa status koneksi GPRS
+bool cekStatusGPRS() {
+    Serial.println("Memeriksa status GPRS...");
+    kirimPerintahAT("AT+SAPBR=2,1", "OK", 5000);
+    delay(1000);
+    if (Serial1.find("+SAPBR: 1,1")) {
+        Serial.println("GPRS terhubung.");
+        return true;
+    } else {
+        Serial.println("GPRS tidak terhubung.");
+        return false;
+    }
+}
+
+// Fungsi untuk mengaktifkan GPRS
+void aktifkanGPRS() {
+    const int maxAttempts = 3; // Maksimal 3 upaya pengaktifan
+    for (int attempts = 0; attempts < maxAttempts; attempts++) {
+        // Konfigurasi parameter GPRS
+        kirimPerintahAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"APN\",\"internet\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
+
+        // Mengaktifkan bearer profil
+        if (kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000)) {
+            delay(5000); // Berikan waktu bagi modul untuk terhubung
+            if (cekStatusGPRS()) {
+                Serial.println("GPRS berhasil diaktifkan.");
+                return; // Keluar dari fungsi jika berhasil terhubung
+            }
+        }
+        Serial.println("Gagal mengaktifkan GPRS, mencoba lagi...");
+    }
+    Serial.println("Gagal mengaktifkan GPRS setelah beberapa upaya.");
 }
 
 // Fungsi untuk menginisialisasi modul SIM808
@@ -218,6 +297,7 @@ void inisialisasiSIM808() {
     kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
     delay(2000);
     kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+
 }
 
 // Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
