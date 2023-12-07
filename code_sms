@@ -351,13 +351,22 @@ bool bacaSMS() {
 }
 
 
-// Modifikasi fungsi kirimInfoGPS untuk menerima parameter nomorTujuan
+// Fungsi untuk mengirim SMS dengan informasi GPS
 void kirimInfoGPS(String nomorTujuan) {
+    // Dapatkan informasi GPS
     String lat = String(gps.location.lat(), 6);
     String lng = String(gps.location.lng(), 6);
-    String linkGoogleMaps = "https://maps.google.com/?q=" + lat + "," + lng;
+    String speed = String(gps.speed.knots(), 2);
+    int satellites = gps.satellites.value();
+    String hdop = String(gps.hdop.hdop(), 2);
+    int signalStrength = globalSignalQuality;
 
-    String isiSMS = "Posisi GPS saat ini: " + linkGoogleMaps;
+    // Isi SMS
+    String isiSMS = "Device_ID: 101\n";
+    isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
+    isiSMS += "Speed: " + speed + " Knots\n";
+    isiSMS += "Satellites: " + String(satellites) + " HDOP: " + hdop + "\n";
+    isiSMS += "Signal Strength: " + String(signalStrength);
 
     // Mengirim SMS
     kirimPerintahAT(("AT+CMGS=\"" + nomorTujuan + "\"").c_str(), ">", 10000);
