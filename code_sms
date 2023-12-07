@@ -49,14 +49,15 @@ void loop() {
         gps.encode(c);
     }
 
-// Membaca SMS masuk dan memprosesnya
-if (Serial1.available()) {
+    // Membaca SMS masuk dan memprosesnya
+    if (Serial1.available()) {
         String smsHeader = Serial1.readStringUntil('\n');
         if (smsHeader.startsWith("+CMT:")) {
             String nomorPengirim = ekstrakNomorPengirim(smsHeader);
             String isiSMS = Serial1.readStringUntil('\n');
             if (isiSMS.indexOf("where") != -1) {
                 kirimInfoGPS(nomorPengirim); // Memanggil dengan nomor pengirim
+                hapusSemuaSMS(); // Hapus semua SMS setelah membalas
             }
         }
     }
@@ -366,6 +367,13 @@ void kirimInfoGPS(String nomorTujuan) {
     // Cetak informasi ke Serial Monitor
     Serial.println("SMS terkirim ke: " + nomorTujuan);
     Serial.println("Isi SMS: " + isiSMS);
+}
+
+// Fungsi untuk menghapus semua SMS
+void hapusSemuaSMS() {
+    // Mengirim perintah AT untuk menghapus semua SMS
+    kirimPerintahAT("AT+CMGD=1,4", "OK", 5000);
+    Serial.println("Semua SMS telah dihapus.");
 }
 
 // Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
