@@ -1,3 +1,5 @@
+//hanya 1 led indikator satelit
+
 // Library untuk modul SIM808, parsing data GPS, komunikasi serial pada pin digital, dan manajemen data JSON
 #include <DFRobot_SIM808.h>
 #include <TinyGPS++.h>
