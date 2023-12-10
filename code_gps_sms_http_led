@@ -92,30 +92,24 @@ void loop() {
     if (currentMillis - lastDisplayTime >= displayInterval) {
         lastDisplayTime = currentMillis;
         
-        // Cek kualitas sinyal seluler
         globalSignalQuality = cekSinyal();
-
-        // Dapatkan data GPS
-        String dataGPS = getDataGPS(); 
-
-        // Selalu kirim data ke server, terlepas dari status sinyal atau GPS
+        
+        String dataGPS = getDataGPS();
         kirimDataDariBuffer();
         kirimDataKeServer(dataGPS);
-
-        // Lakukan rekoneksi jika sinyal buruk
+        
         if (globalSignalQuality <= 0) {
             rekoneksi();
         }
-    }
 
-    // Kontrol LED berdasarkan status GPS
-    if (isGPSUpdated) {
-        if (gps.location.isValid()) {
-            updateLedState(false, true); // Matikan LED merah, nyalakan LED biru
+        int satelliteCount = getSatelliteCount();
+        if (satelliteCount > 2) {
+            updateLedState(false, true);
         } else {
-            updateLedState(true, false); // Nyalakan LED merah, matikan LED biru
-        }    
+            updateLedState(true, false);
+        }
     }
+    
 }
 
 // Fungsi untuk mengekstrak nomor pengirim dari header SMS
@@ -152,16 +146,22 @@ int cekSinyal() {
     return -1; // Jika tidak ada respons, kembalikan -1
 }
 
+//mendapatkan jumlah satelit
+int getSatelliteCount() {
+    if (gps.satellites.isValid()) {
+        return gps.satellites.value();
+    } else {
+        return 0;
+    }
+}
+
 void updateLedState(bool redState, bool blueState) {
-    // Perbarui LED merah jika berbeda dari status terakhir
     if (lastLedStateRed != redState) {
-        analogWrite(RedLEDPin, redState ? ledBrightness : 0);
+        digitalWrite(RedLEDPin, redState ? HIGH : LOW);
         lastLedStateRed = redState;
     }
-
-    // Perbarui LED biru jika berbeda dari status terakhir
     if (lastLedStateBlue != blueState) {
-        analogWrite(BlueLEDPin, blueState ? ledBrightness : 0);
+        digitalWrite(BlueLEDPin, blueState ? HIGH : LOW);
         lastLedStateBlue = blueState;
     }
 }
@@ -223,6 +223,9 @@ String getDataGPS() {
     // Cetak string JSON ke Serial Monitor untuk debugging
     Serial.println("JSON String to send:");
     Serial.println(jsonString);
+
+    // Mengembalikan jumlah satelit yang terdeteksi
+    return gps.satellites.isValid() ? String(gps.satellites.value()) : "0";
 
     return jsonString;
 }
