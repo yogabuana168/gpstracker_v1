@@ -1,5 +1,3 @@
-//hanya 1 led indikator satelit
-
 // Library untuk modul SIM808, parsing data GPS, komunikasi serial pada pin digital, dan manajemen data JSON
 #include <DFRobot_SIM808.h>
 #include <TinyGPS++.h>
@@ -41,13 +39,12 @@ const int ledBrightness = 25; // Kira-kira 10% kecerahan
 bool lastLedStateRed = false;
 bool lastLedStateBlue = false;
 
-
 void setup() {
     // Inisialisasi komunikasi serial
     pinMode(RedLEDPin, OUTPUT); // Inisialisasi pin LED merah
     analogWrite(RedLEDPin, ledBrightness); // Nyalakan LED merah
 
-
+    // Inisialisasi komunikasi serial
     Serial1.begin(9600);
     Serial.begin(9600);
     delay(10000); // Delay untuk menunggu modul siap
@@ -58,22 +55,15 @@ void setup() {
     Serial.println("Menginisialisasi modul GPS...");
     ss.begin(9600); // Mulai komunikasi dengan modul GPS
 
-    
     pinMode(BlueLEDPin, OUTPUT); // Inisialisasi pin LED biru
+
 }
 
-
-
-
 void loop() {
-    bool isGPSUpdated = false;
-
     // Membaca data dari modul GPS dan mengolahnya
     while (ss.available() > 0) {
         char c = ss.read();
-        if (gps.encode(c)) {
-            isGPSUpdated = true;
-        }
+        gps.encode(c);
     }
 
     // Membaca SMS masuk dan memprosesnya
@@ -89,29 +79,38 @@ void loop() {
         }
     }
 
-    // Menampilkan dan mengirim data GPS setiap 2 menit
+
+    // Menampilkan data GPS setiap 2 menit
     unsigned long currentMillis = millis();
     if (currentMillis - lastDisplayTime >= displayInterval) {
         lastDisplayTime = currentMillis;
-        
-        globalSignalQuality = cekSinyal();
-        
-        String dataGPS = getDataGPS();
-        kirimDataDariBuffer();
-        kirimDataKeServer(dataGPS);
-        
-        if (globalSignalQuality <= 0) {
-            rekoneksi();
+        // Jika ada update lokasi dari GPS
+        if (gps.location.isUpdated() || true) {
+            // Cek kualitas sinyal seluler
+            globalSignalQuality = cekSinyal();
+            
+            // Dapatkan data GPS
+            String dataGPS = getDataGPS(); 
+            // Jika sinyal baik, kirim data ke server, jika tidak, simpan ke buffer dan lakukan rekoneksi
+            if (globalSignalQuality > 0) {
+                kirimDataDariBuffer();
+                kirimDataKeServer(dataGPS);
+            } else {
+                simpanDataKeBuffer(dataGPS);
+                rekoneksi();
+            }
         }
+    } 
 
-        int satelliteCount = getSatelliteCount();
-        if (satelliteCount > 2) {
-            updateLedState(false, true);
-        } else {
-            updateLedState(true, false);
-        }
-    }
-    
+    // Cek jumlah satelit dan perbarui status LED
+    int satelliteCount = getSatelliteCount();
+    if (satelliteCount == 0) {
+        // Nyalakan LED merah jika tidak ada satelit
+        updateLedState(true, false);
+    } else {
+        // Nyalakan LED biru jika ada satelit
+        updateLedState(false, true);
+    }       
 }
 
 // Fungsi untuk mengekstrak nomor pengirim dari header SMS
@@ -211,12 +210,13 @@ String getDataGPS() {
     StaticJsonDocument<bufferSize> jsonDoc;
     jsonDoc["device_id"] = 101;
     jsonDoc["datetime"] = getFormattedDate(gps);
-    jsonDoc["lat"] = gps.location.isValid() ? gps.location.lat() : 0;
-    jsonDoc["lng"] = gps.location.isValid() ? gps.location.lng() : 0;
-    jsonDoc["speed_knots"] = gps.speed.isValid() ? gps.speed.knots() : 0;
-    jsonDoc["course"] = gps.course.isValid() ? gps.course.deg() : 0;
-    jsonDoc["satellites"] = gps.satellites.isValid() ? gps.satellites.value() : 0;
-    jsonDoc["HDOP"] = gps.hdop.isValid() ? gps.hdop.value() : 0;    
+    jsonDoc["lat"] = gps.location.lat();
+    jsonDoc["lng"] = gps.location.lng();
+    jsonDoc["speed_knots"] = gps.speed.knots();
+    jsonDoc["course"] = gps.course.deg();
+    // jsonDoc["altitude"] = gps.altitude.meters();
+    jsonDoc["satellites"] = gps.satellites.value();
+    jsonDoc["HDOP"] = gps.hdop.value();    
     jsonDoc["sinyal"] = globalSignalQuality;
 
     String jsonString;
@@ -225,9 +225,6 @@ String getDataGPS() {
     // Cetak string JSON ke Serial Monitor untuk debugging
     Serial.println("JSON String to send:");
     Serial.println(jsonString);
-
-    // Mengembalikan jumlah satelit yang terdeteksi
-    return gps.satellites.isValid() ? String(gps.satellites.value()) : "0";
 
     return jsonString;
 }
