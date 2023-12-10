@@ -68,7 +68,7 @@ void loop() {
     if (currentMillis - lastDisplayTime >= displayInterval) {
         lastDisplayTime = currentMillis;
         // Jika ada update lokasi dari GPS
-        if (gps.location.isUpdated()) {
+        if (gps.location.isUpdated() || true) {
             // Cek kualitas sinyal seluler
             globalSignalQuality = cekSinyal();
             
