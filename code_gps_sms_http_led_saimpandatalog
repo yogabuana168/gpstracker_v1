@@ -131,11 +131,9 @@ void loop() {
         if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
             String dataCSV = getDataCSV();
-            if (globalSignalQuality > 0) {
-                kirimDataKeServer(dataCSV); // Sesuaikan jika Anda mengirim ke server juga
-            } else {
-                simpanDataKeSD(dataCSV); // Simpan data ke SD jika sinyal buruk
-            }
+
+            // Simpan data ke SD card (buang kondisi sinyal baik)
+            simpanDataKeSD(dataCSV); 
         }
         lastDisplayTime = currentMillis;
     }
@@ -148,12 +146,6 @@ void loop() {
     } else {
         // Nyalakan LED biru jika ada satelit
         updateLedState(false, true);
-    }
-
-    // Mengecek data log secara teratur
-    if (currentMillis - lastLogCheckTime >= logCheckInterval) {
-        cekDanKirimDataLog(5); // Proses 5 baris data log
-        lastLogCheckTime = currentMillis;
     }
 }
 
@@ -320,57 +312,6 @@ bool cekRegistrasiGPRS() {
     Serial.println("Timeout menunggu respons registrasi jaringan.");
     return false; // Timeout tanpa respons
 }
-
-// Fungsi untuk cek dan kirim data log dengan batas baris
-void cekDanKirimDataLog(int limit) {
-    const char* namaFile = "/data_log.json";
-    const char* namaFileSementara = "/temp_log.json"; // Menambahkan definisi file sementara
-
-    File file = SD.open(namaFile, FILE_READ);
-    if (!file) {
-        Serial.println("Tidak bisa membuka file data log.");
-        return;
-    }
-
-    File fileTemp = SD.open(namaFileSementara, FILE_WRITE); // Deklarasi file sementara
-
-    int lineCount = 0;
-    while (file.available() && lineCount < limit) {
-        String line = file.readStringUntil('\n');
-        if (line.length() > 0) { // Mengganti isEmpty dengan length() > 0
-            kirimDataKeServer(line);
-            lineCount++;
-        } else {
-            fileTemp.println(line); // Menyimpan data yang tidak terkirim ke file sementara
-        }
-    }
-
-    file.close();
-    fileTemp.close();
-
-    Serial.print("Jumlah data log yang diproses: ");
-    Serial.println(lineCount);
-
-    // Mengganti file lama dengan isi dari file sementara
-    if (SD.exists(namaFile)) {
-        SD.remove(namaFile);
-    }
-    if (SD.exists(namaFileSementara)) {
-        fileTemp = SD.open(namaFileSementara, FILE_READ);
-        file = SD.open(namaFile, FILE_WRITE);
-
-        while (fileTemp.available()) {
-            file.write(fileTemp.read());
-        }
-
-        file.close();
-        fileTemp.close();
-        SD.remove(namaFileSementara);
-    }
-
-    tampilkanJumlahDataLogSD();
-}
-
 
 // Fungsi untuk menginisialisasi ulang modul SIM808 jika terjadi masalah konektivitas
 void rekoneksi() {
