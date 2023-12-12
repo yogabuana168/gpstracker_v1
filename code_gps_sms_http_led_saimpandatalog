@@ -132,10 +132,17 @@ void loop() {
             globalSignalQuality = cekSinyal();
             String dataCSV = getDataCSV();
 
-            // Simpan data ke SD card (buang kondisi sinyal baik)
-            simpanDataKeSD(dataCSV); 
+            // Coba kirim data ke server, jika gagal simpan ke SD card
+            if (!kirimDataKeServer(dataCSV)) {
+                simpanDataKeSD(dataCSV);
+            }
         }
         lastDisplayTime = currentMillis;
+    }
+
+    // Cek buffer dan kirim data yang belum terkirim jika koneksi berhasil
+    if (bufferIndex > 0 && cekRegistrasiGPRS()) {
+        kirimDataDariBuffer();
     }
 
     // Cek jumlah satelit dan perbarui status LED
