@@ -200,6 +200,22 @@ void updateLedState(bool redState, bool blueState) {
     }
 }
 
+// Fungsi untuk menampilkan jumlah data log di SD card
+void tampilkanJumlahDataLogSD() {
+    const char* namaFile = "/data_log.txt";
+    File file = SD.open(namaFile);
+    int jumlahBaris = 0;
+    while (file.available()) {
+        if (file.readStringUntil('\n').length() > 0) jumlahBaris++;
+    }
+    file.close();
+    Serial.print("Jumlah data log di SD: ");
+    Serial.println(jumlahBaris);
+}
+
+
+
+
 // Fungsi untuk cek dan kirim data log dengan batas baris
 void cekDanKirimDataLog(int limit) {
     const char* namaFile = "/data_log.txt";
@@ -225,27 +241,29 @@ void cekDanKirimDataLog(int limit) {
     file.close();
     fileTemp.close();
 
-        // Ganti file lama dengan isi dari file sementara
-        if (SD.exists(namaFile)) {
-            SD.remove(namaFile);
+    // Menampilkan jumlah data log yang diproses
+    Serial.print("Jumlah data log yang diproses: ");
+    Serial.println(lineCount);
+
+    // Ganti file lama dengan isi dari file sementara
+    if (SD.exists(namaFile)) {
+        SD.remove(namaFile);
+    }
+    if (SD.exists(namaFileSementara)) {
+        fileTemp = SD.open(namaFileSementara, FILE_READ);
+        file = SD.open(namaFile, FILE_WRITE);
+
+        while (fileTemp.available()) {
+            file.write(fileTemp.read());
         }
-        if (SD.exists(namaFileSementara)) {
-            // Buka file sementara dan file asli untuk penyalinan
-            fileTemp = SD.open(namaFileSementara, FILE_READ);
-            file = SD.open(namaFile, FILE_WRITE);
 
-            // Salin data dari file sementara ke file asli
-            while (fileTemp.available()) {
-                file.write(fileTemp.read());
-            }
+        file.close();
+        fileTemp.close();
+        SD.remove(namaFileSementara);
+    }
 
-            file.close();
-            fileTemp.close();
-
-            // Hapus file sementara setelah penyalinan
-            SD.remove(namaFileSementara);
-        }
-    
+    // Menampilkan jumlah data log yang tersimpan di SD
+    tampilkanJumlahDataLogSD();
 }
 
 // Fungsi untuk menyimpan data JSON ke kartu microSD
