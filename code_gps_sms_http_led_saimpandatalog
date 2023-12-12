@@ -43,6 +43,10 @@ bool lastLedStateBlue = false;
 // Definisi pin untuk SPI Communication
 const int chipSelect = 53;
 
+// Variabel untuk manajemen waktu pemeriksaan log
+unsigned long lastLogCheckTime = 0;
+const long logCheckInterval = 420000; // 7 menit dalam milidetik
+
 void setup() {
     // Inisialisasi komunikasi serial untuk debugging
     Serial.begin(9600);
@@ -81,6 +85,9 @@ void setup() {
 }
 
 void loop() {
+    // Deklarasi currentMillis di awal loop
+    unsigned long currentMillis = millis();
+
     // Membaca data dari modul GPS dan mengolahnya
     while (ss.available() > 0) {
         char c = ss.read();
@@ -100,28 +107,26 @@ void loop() {
         }
     }
 
+    // Mengecek dan mengirim data log setiap 7 menit
+    if (currentMillis - lastLogCheckTime >= logCheckInterval) {
+        lastLogCheckTime = currentMillis;
+        cekDanKirimDataLog(5); // Proses 5 baris data log
+    }
 
-    // Menampilkan data GPS setiap 2 menit
-    unsigned long currentMillis = millis();
+    // Cek apakah sudah waktunya mengirim data GPS reguler
     if (currentMillis - lastDisplayTime >= displayInterval) {
         lastDisplayTime = currentMillis;
-        // Jika ada update lokasi dari GPS
-        if (gps.location.isUpdated() || true) {
-            // Cek kualitas sinyal seluler
+        if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
-            
-            // Dapatkan data GPS
-            String dataGPS = getDataGPS(); 
-            // Jika sinyal baik, kirim data ke server, jika tidak, simpan ke buffer dan lakukan rekoneksi
+            String dataGPS = getDataGPS();
             if (globalSignalQuality > 0) {
-                kirimDataDariBuffer();
                 kirimDataKeServer(dataGPS);
             } else {
-                simpanDataKeBuffer(dataGPS);
+                simpanDataKeSD(dataGPS); // Simpan data ke SD jika sinyal buruk
                 rekoneksi();
             }
         }
-    } 
+    }
 
     // Cek jumlah satelit dan perbarui status LED
     int satelliteCount = getSatelliteCount();
@@ -131,8 +136,15 @@ void loop() {
     } else {
         // Nyalakan LED biru jika ada satelit
         updateLedState(false, true);
-    }       
+    }
+
+    // Cek dan kirim data log setiap 7 menit
+    if (currentMillis - lastLogCheckTime >= logCheckInterval) {
+        lastLogCheckTime = currentMillis;
+        cekDanKirimDataLog(5); // Proses 5 baris data log
+    }
 }
+
 
 // Fungsi untuk mengekstrak nomor pengirim dari header SMS
 String ekstrakNomorPengirim(String header) {
@@ -186,6 +198,54 @@ void updateLedState(bool redState, bool blueState) {
         digitalWrite(BlueLEDPin, blueState ? HIGH : LOW);
         lastLedStateBlue = blueState;
     }
+}
+
+// Fungsi untuk cek dan kirim data log dengan batas baris
+void cekDanKirimDataLog(int limit) {
+    const char* namaFile = "/data_log.txt";
+    const char* namaFileSementara = "/temp_log.txt";
+    File file = SD.open(namaFile);
+    File fileTemp = SD.open(namaFileSementara, FILE_WRITE);
+
+    if (!file || !fileTemp) {
+        Serial.println("Tidak bisa membuka file data log.");
+        return;
+    }
+
+    int lineCount = 0;
+    while (file.available() && lineCount < limit) {
+        String line = file.readStringUntil('\n');
+        if (kirimDataKeServer(line)) {
+            lineCount++;
+        } else {
+            fileTemp.println(line);
+        }
+    }
+
+    file.close();
+    fileTemp.close();
+
+        // Ganti file lama dengan isi dari file sementara
+        if (SD.exists(namaFile)) {
+            SD.remove(namaFile);
+        }
+        if (SD.exists(namaFileSementara)) {
+            // Buka file sementara dan file asli untuk penyalinan
+            fileTemp = SD.open(namaFileSementara, FILE_READ);
+            file = SD.open(namaFile, FILE_WRITE);
+
+            // Salin data dari file sementara ke file asli
+            while (fileTemp.available()) {
+                file.write(fileTemp.read());
+            }
+
+            file.close();
+            fileTemp.close();
+
+            // Hapus file sementara setelah penyalinan
+            SD.remove(namaFileSementara);
+        }
+    
 }
 
 // Fungsi untuk menyimpan data JSON ke kartu microSD
@@ -272,13 +332,6 @@ String getDataGPS() {
     return jsonString;
 }
 
-// Fungsi untuk menyimpan data ke buffer lokal
-void simpanDataKeBuffer(const String& data) {
-    if (bufferIndex < maxBuffer) {
-        dataBuffer[bufferIndex++] = data;
-    }
-}
-
 // Fungsi untuk mengirim data dari buffer ke server
 void kirimDataDariBuffer() {
     for (int i = 0; i < bufferIndex; i++) {
@@ -288,7 +341,7 @@ void kirimDataDariBuffer() {
 }
 
 // Fungsi untuk mengirim data ke server melalui HTTP POST
-void kirimDataKeServer(const String& data) {
+bool kirimDataKeServer(const String& data) {
     int dataLength = data.length();
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
 
@@ -328,6 +381,7 @@ void kirimDataKeServer(const String& data) {
             int statusCode = httpActionResponse.substring(httpActionResponse.indexOf(",") + 1, httpActionResponse.lastIndexOf(",")).toInt();
             if (statusCode == 200) {
                 Serial.println("Data successfully sent to server.");
+                return true; // Pengiriman berhasil
             } else {
                 // Status bukan 200, terjadi kesalahan
                 Serial.print("HTTP POST failed with status code: ");
