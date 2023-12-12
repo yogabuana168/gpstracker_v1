@@ -1,0 +1,509 @@
+// Library untuk modul SIM808, parsing data GPS, komunikasi serial pada pin digital, dan manajemen data JSON
+#include <DFRobot_SIM808.h>
+#include <TinyGPS++.h>
+#include <SoftwareSerial.h>
+#include <ArduinoJson.h>
+#include <SD.h>
+
+// Inisialisasi modul SIM808 dan GPS
+DFRobot_SIM808 sim808(&Serial1);
+SoftwareSerial ss(10, -1); // Pin 10 untuk RX, TX tidak digunakan
+TinyGPSPlus gps;
+
+// Variabel untuk manajemen buffer dan interval waktu
+const int bufferSize = 256;
+unsigned long lastDisplayTime = 0;
+const long displayInterval = 300000; // 5 menit
+
+// Buffer untuk penyimpanan data GPS jika sinyal buruk
+const int maxBuffer = 4;
+String dataBuffer[maxBuffer];
+int bufferIndex = 0;
+
+// Variabel untuk menyimpan kualitas sinyal
+int globalSignalQuality = -1;
+
+// Global variable untuk menampung respons terakhir dari HTTPACTION
+String httpActionResponse = "";
+
+// global variabel  untuk menyimpan nomor pengirim SMS
+String nomorPengirimSMS;
+
+// Definisi pin LED
+const int RedLEDPin = 3;  // Pin LED merah
+const int BlueLEDPin = 5; // Pin LED biru
+
+// Kecerahan LED
+const int ledBrightness = 25; // Kira-kira 10% kecerahan
+
+// Variabel global untuk status LED terakhir
+bool lastLedStateRed = false;
+bool lastLedStateBlue = false;
+
+// Definisi pin untuk SPI Communication
+const int chipSelect = 53;
+
+void setup() {
+    // Inisialisasi komunikasi serial untuk debugging
+    Serial.begin(9600);
+    while (!Serial) {
+        ; // Tunggu serial port terhubung. Hanya dibutuhkan untuk papan dengan USB serial native
+    }
+
+    Serial.println("Inisialisasi SD card...");
+
+    // Pastikan pin SS diatur sebagai OUTPUT sebelum memanggil SD.begin()
+    pinMode(53, OUTPUT);
+
+    if (!SD.begin(chipSelect)) {
+        Serial.println("Inisialisasi SD card gagal!");
+        // Menangani kegagalan inisialisasi di sini, misalnya dengan menghentikan program
+        return;
+    }
+    Serial.println("Inisialisasi SD card berhasil.");
+
+    // Inisialisasi pin LED dan komunikasi serial lainnya
+    pinMode(RedLEDPin, OUTPUT); // Inisialisasi pin LED merah
+    analogWrite(RedLEDPin, ledBrightness); // Nyalakan LED merah
+
+    // Inisialisasi komunikasi serial untuk modul SIM808
+    Serial1.begin(9600);
+    delay(10000); // Delay untuk menunggu modul siap
+    Serial.println("start ------ ");
+    inisialisasiSIM808();    // Inisialisasi modul SIM808
+
+    // Mengatur notifikasi SMS baru ke output serial
+    kirimPerintahAT("AT+CNMI=2,2,0,0,0", "OK", 5000);
+    Serial.println("Menginisialisasi modul GPS...");
+    ss.begin(9600); // Mulai komunikasi dengan modul GPS
+
+    pinMode(BlueLEDPin, OUTPUT); // Inisialisasi pin LED biru
+}
+
+void loop() {
+    // Membaca data dari modul GPS dan mengolahnya
+    while (ss.available() > 0) {
+        char c = ss.read();
+        gps.encode(c);
+    }
+
+    // Membaca SMS masuk dan memprosesnya
+    if (Serial1.available()) {
+        String smsHeader = Serial1.readStringUntil('\n');
+        if (smsHeader.startsWith("+CMT:")) {
+            String nomorPengirim = ekstrakNomorPengirim(smsHeader);
+            String isiSMS = Serial1.readStringUntil('\n');
+            if (isiSMS.indexOf("where") != -1) {
+                kirimInfoGPS(nomorPengirim); // Memanggil dengan nomor pengirim
+                hapusSemuaSMS(); // Hapus semua SMS setelah membalas
+            }
+        }
+    }
+
+
+    // Menampilkan data GPS setiap 2 menit
+    unsigned long currentMillis = millis();
+    if (currentMillis - lastDisplayTime >= displayInterval) {
+        lastDisplayTime = currentMillis;
+        // Jika ada update lokasi dari GPS
+        if (gps.location.isUpdated() || true) {
+            // Cek kualitas sinyal seluler
+            globalSignalQuality = cekSinyal();
+            
+            // Dapatkan data GPS
+            String dataGPS = getDataGPS(); 
+            // Jika sinyal baik, kirim data ke server, jika tidak, simpan ke buffer dan lakukan rekoneksi
+            if (globalSignalQuality > 0) {
+                kirimDataDariBuffer();
+                kirimDataKeServer(dataGPS);
+            } else {
+                simpanDataKeBuffer(dataGPS);
+                rekoneksi();
+            }
+        }
+    } 
+
+    // Cek jumlah satelit dan perbarui status LED
+    int satelliteCount = getSatelliteCount();
+    if (satelliteCount == 0) {
+        // Nyalakan LED merah jika tidak ada satelit
+        updateLedState(true, false);
+    } else {
+        // Nyalakan LED biru jika ada satelit
+        updateLedState(false, true);
+    }       
+}
+
+// Fungsi untuk mengekstrak nomor pengirim dari header SMS
+String ekstrakNomorPengirim(String header) {
+    int mulai = header.indexOf('\"') + 1;
+    int akhir = header.indexOf('\"', mulai);
+    return header.substring(mulai, akhir);
+}
+
+// Fungsi untuk memeriksa kualitas sinyal seluler
+int cekSinyal() {
+    // Membersihkan buffer Serial1
+    while(Serial1.available()) {
+        Serial1.read();
+    }
+    // Mengirim perintah AT untuk cek sinyal
+    Serial1.println("AT+CSQ");
+    
+    // Tunggu respons dari modul
+    unsigned long startTime = millis();
+    while (millis() - startTime < 10000) {
+        if (Serial1.available()) {
+            String res = Serial1.readStringUntil('\n');
+            // Jika respons adalah kualitas sinyal, tampilkan dan kembalikan nilai tersebut
+            if (res.startsWith("+CSQ:")) {
+                int signalQuality = res.substring(6, res.indexOf(",")).toInt();
+                Serial.print("Signal Quality: ");
+                Serial.println(signalQuality);
+                return signalQuality;
+            }
+        }
+    }
+    Serial.println("No response for signal quality or timeout occurred.");
+    return -1; // Jika tidak ada respons, kembalikan -1
+}
+
+//mendapatkan jumlah satelit
+int getSatelliteCount() {
+    if (gps.satellites.isValid()) {
+        return gps.satellites.value();
+    } else {
+        return 0;
+    }
+}
+
+void updateLedState(bool redState, bool blueState) {
+    if (lastLedStateRed != redState) {
+        digitalWrite(RedLEDPin, redState ? HIGH : LOW);
+        lastLedStateRed = redState;
+    }
+    if (lastLedStateBlue != blueState) {
+        digitalWrite(BlueLEDPin, blueState ? HIGH : LOW);
+        lastLedStateBlue = blueState;
+    }
+}
+
+// Fungsi untuk menyimpan data JSON ke kartu microSD
+void simpanDataKeSD(const String& dataJson) {
+    // Nama file tempat data disimpan di microSD
+    const char* namaFile = "/data_log.txt";
+
+    // Buka file di kartu microSD
+    File file = SD.open(namaFile, FILE_WRITE);
+    if (file) {
+        Serial.println("Menyimpan data ke SD card...");
+        // Tulis data JSON ke file
+        file.println(dataJson);
+
+        // Tutup file setelah selesai menulis
+        file.close();
+        Serial.println("Data berhasil disimpan ke SD card.");
+    } else {
+        // Jika file tidak dapat dibuka
+        Serial.println("Gagal membuka file di SD card.");
+    }
+}
+
+
+// Fungsi untuk menginisialisasi ulang modul SIM808 jika terjadi masalah konektivitas
+void rekoneksi() {
+    Serial.println("Melakukan rekoneksi...");
+    inisialisasiSIM808();
+    Serial.println("Rekoneksi selesai.");
+}
+
+// Fungsi untuk menampilkan data GPS
+void tampilkanDataGPS() {
+    // Penyusunan data GPS ke format JSON
+    StaticJsonDocument<bufferSize> jsonDoc;
+    jsonDoc["device_id"] = 101;
+    jsonDoc["datetime"] = getFormattedDate(gps);
+    jsonDoc["lat"] = gps.location.lat();
+    jsonDoc["lng"] = gps.location.lng();
+    jsonDoc["speed_knots"] = gps.speed.knots();
+    jsonDoc["course"] = gps.course.deg();
+    // jsonDoc["altitude"] = gps.altitude.meters();
+    jsonDoc["satellites"] = gps.satellites.value();
+    jsonDoc["HDOP"] = gps.hdop.value();    
+    jsonDoc["sinyal"] = globalSignalQuality; // Use the globalSignalQuality variable
+
+    String jsonString;
+    serializeJson(jsonDoc, jsonString);
+
+    // Cek kualitas sinyal sebelum mengirim data
+    if (!cekSinyal()) {
+        // Jika sinyal buruk, simpan data ke buffer
+        if (bufferIndex < maxBuffer) {
+            dataBuffer[bufferIndex++] = jsonString;
+        }
+        return;
+    }
+    // Jika sinyal baik, kirim data ke server
+    kirimDataKeServer(jsonString);
+}
+
+// Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format JSON
+String getDataGPS() {
+    // Penyusunan data GPS ke format JSON
+    StaticJsonDocument<bufferSize> jsonDoc;
+    jsonDoc["device_id"] = 101;
+    jsonDoc["datetime"] = getFormattedDate(gps);
+    jsonDoc["lat"] = gps.location.lat();
+    jsonDoc["lng"] = gps.location.lng();
+    jsonDoc["speed_knots"] = gps.speed.knots();
+    jsonDoc["course"] = gps.course.deg();
+    // jsonDoc["altitude"] = gps.altitude.meters();
+    jsonDoc["satellites"] = gps.satellites.value();
+    jsonDoc["HDOP"] = gps.hdop.value();    
+    jsonDoc["sinyal"] = globalSignalQuality;
+
+    String jsonString;
+    serializeJson(jsonDoc, jsonString);
+
+    // Cetak string JSON ke Serial Monitor untuk debugging
+    Serial.println("JSON String to send:");
+    Serial.println(jsonString);
+
+    return jsonString;
+}
+
+// Fungsi untuk menyimpan data ke buffer lokal
+void simpanDataKeBuffer(const String& data) {
+    if (bufferIndex < maxBuffer) {
+        dataBuffer[bufferIndex++] = data;
+    }
+}
+
+// Fungsi untuk mengirim data dari buffer ke server
+void kirimDataDariBuffer() {
+    for (int i = 0; i < bufferIndex; i++) {
+        kirimDataKeServer(dataBuffer[i]);
+    }
+    bufferIndex = 0; // Reset buffer setelah data terkirim
+}
+
+// Fungsi untuk mengirim data ke server melalui HTTP POST
+void kirimDataKeServer(const String& data) {
+    int dataLength = data.length();
+    String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
+
+    // Pastikan tidak ada sesi HTTP yang masih berjalan
+    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
+    delay(1000);
+
+    // Inisialisasi sesi HTTP baru
+    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://track.gpscenter.id/api/data.php\"", "OK", 2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
+
+    // Siapkan untuk mengirim data
+    if (kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000)) {
+        // Kirim data JSON ke modul SIM808
+        Serial1.print(data);
+        delay(1000); // Tunggu data terkirim
+
+        // Mulai aksi HTTP POST
+        kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000);
+
+        // Tunggu respons dari aksi HTTP POST
+        unsigned long startWaitTime = millis();
+        while (millis() - startWaitTime < 60000) { // Tunggu maksimal 60 detik untuk respons
+            if (Serial1.available()) {
+                String line = Serial1.readStringUntil('\n');
+                if (line.startsWith("+HTTPACTION:")) {
+                    httpActionResponse = line;
+                    break; // Keluar dari loop jika respons diterima
+                }
+            }
+        }
+
+        if (httpActionResponse.length() > 0) {
+            // Respons diterima, cek statusnya
+            int statusCode = httpActionResponse.substring(httpActionResponse.indexOf(",") + 1, httpActionResponse.lastIndexOf(",")).toInt();
+            if (statusCode == 200) {
+                Serial.println("Data successfully sent to server.");
+            } else {
+                // Status bukan 200, terjadi kesalahan
+                Serial.print("HTTP POST failed with status code: ");
+                Serial.println(statusCode);
+                // Simpan data ke SD card jika pengiriman gagal
+                simpanDataKeSD(data);
+                inisialisasiSIM808();
+            }
+        } else {
+            // Tidak ada respons diterima, terjadi timeout
+            Serial.println("HTTP POST response timeout, reinitializing SIM808.");
+            // Simpan data ke SD card jika terjadi timeout
+            simpanDataKeSD(data);
+            inisialisasiSIM808();
+        }
+    } else {
+        // HTTPDATA command gagal, lakukan inisialisasi ulang
+        Serial.println("HTTPDATA command failed, reinitializing SIM808.");
+        // Simpan data ke SD card jika HTTPDATA command gagal
+        simpanDataKeSD(data);
+        inisialisasiSIM808();
+    }
+
+    // Tutup sesi HTTP setelah selesai
+    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
+}
+
+
+// Fungsi untuk memeriksa status koneksi GPRS
+bool cekStatusGPRS() {
+    Serial.println("Memeriksa status GPRS...");
+    kirimPerintahAT("AT+SAPBR=2,1", "OK", 5000);
+    delay(1000);
+    if (Serial1.find("+SAPBR: 1,1")) {
+        Serial.println("GPRS terhubung.");
+        return true;
+    } else {
+        Serial.println("GPRS tidak terhubung.");
+        return false;
+    }
+}
+
+// Fungsi untuk mengaktifkan GPRS
+void aktifkanGPRS() {
+    const int maxAttempts = 3; // Maksimal 3 upaya pengaktifan
+    for (int attempts = 0; attempts < maxAttempts; attempts++) {
+        // Konfigurasi parameter GPRS
+        kirimPerintahAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"APN\",\"internet\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
+        kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
+
+        // Mengaktifkan bearer profil
+        if (kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000)) {
+            delay(5000); // Berikan waktu bagi modul untuk terhubung
+            if (cekStatusGPRS()) {
+                Serial.println("GPRS berhasil diaktifkan.");
+                return; // Keluar dari fungsi jika berhasil terhubung
+            }
+        }
+        Serial.println("Gagal mengaktifkan GPRS, mencoba lagi...");
+    }
+    Serial.println("Gagal mengaktifkan GPRS setelah beberapa upaya.");
+}
+
+// Fungsi untuk menginisialisasi modul SIM808
+void inisialisasiSIM808() {
+    delay(10000);
+    Serial.println("Menginisialisasi SIM808...");
+
+    kirimPerintahAT("AT+CFUN=0", "OK", 2000);
+    delay(10000);
+
+    kirimPerintahAT("AT+CFUN=1", "OK", 2000);
+    delay(10000);
+
+    delay(2000);
+    kirimPerintahAT("AT+CFUN=1", "OK", 2000);
+    delay(3000);
+
+    kirimPerintahAT("AT+CSQ", "OK", 2000);
+    kirimPerintahAT("AT+CMGF=1", "OK", 2000);
+
+    kirimPerintahAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"APN\",\"internet\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
+    kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
+
+    kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000);
+
+    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    delay(2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
+
+}
+
+// Fungsi untuk membaca SMS dan memeriksa kata kunci "where"
+bool bacaSMS() {
+    if (kirimPerintahAT("AT+CMGL=\"ALL\"", "OK", 5000)) {
+        String response = "";
+        unsigned long start = millis();
+        while (millis() - start < 5000) {
+            if (Serial1.available()) {
+                char c = Serial1.read();
+                response += c;
+                if (response.indexOf("+CMT:") != -1) {
+                    int startIndex = response.indexOf("\"+") + 2; // Cari awal nomor pengirim
+                    int endIndex = response.indexOf("\",\"", startIndex); // Cari akhir nomor pengirim
+                    nomorPengirimSMS = response.substring(startIndex, endIndex); // Simpan nomor pengirim
+                    if (response.indexOf("where") != -1) {
+                        return true; // Kata "where" ditemukan
+                    }
+                }
+            }
+        }
+    }
+    return false; // Kata "where" tidak ditemukan atau AT command gagal
+}
+
+
+// Fungsi untuk mengirim SMS dengan informasi GPS
+void kirimInfoGPS(String nomorTujuan) {
+    // Dapatkan informasi GPS
+    String lat = String(gps.location.lat(), 6);
+    String lng = String(gps.location.lng(), 6);
+    String speed = String(gps.speed.knots(), 2);
+    int satellites = gps.satellites.value();
+    String hdop = String(gps.hdop.hdop(), 2);
+    int signalStrength = globalSignalQuality;
+
+    // Isi SMS
+    String isiSMS = "Device_ID: 101\n";
+    isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
+    isiSMS += "Speed: " + speed + " Knots\n";
+    isiSMS += "Satellites: " + String(satellites) + " HDOP: " + hdop + "\n";
+    isiSMS += "Signal Strength: " + String(signalStrength);
+
+    // Mengirim SMS
+    kirimPerintahAT(("AT+CMGS=\"" + nomorTujuan + "\"").c_str(), ">", 10000);
+    Serial1.println(isiSMS);
+    Serial1.write(26); // CTRL+Z untuk mengirim
+
+    // Cetak informasi ke Serial Monitor
+    Serial.println("SMS terkirim ke: " + nomorTujuan);
+    Serial.println("Isi SMS: " + isiSMS);
+}
+
+// Fungsi untuk menghapus semua SMS
+void hapusSemuaSMS() {
+    // Mengirim perintah AT untuk menghapus semua SMS
+    kirimPerintahAT("AT+CMGD=1,4", "OK", 5000);
+    Serial.println("Semua SMS telah dihapus.");
+}
+
+// Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
+String getFormattedDate(const TinyGPSPlus &gps) {
+    // Mengonversi data waktu dari GPS ke string
+    char dateBuffer[32];
+    sprintf(dateBuffer, "%04d-%02d-%02dT%02d:%02d:%02dZ", gps.date.year(), gps.date.month(), gps.date.day(),
+            gps.time.hour(), gps.time.minute(), gps.time.second());
+    return String(dateBuffer);
+}
+
+// Fungsi utilitas untuk mengirim perintah AT ke modul SIM808 dan menunggu respons
+bool kirimPerintahAT(const char* perintah, const char* respons, unsigned long timeout) {
+    Serial1.println(perintah);
+    // Menunggu dan memeriksa respons dari modul SIM808
+    unsigned long start = millis();
+    while (millis() - start < timeout) {
+        if (Serial1.available()) {
+            String res = Serial1.readString();
+            Serial.print(res);
+            if (res.indexOf(respons) != -1) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
