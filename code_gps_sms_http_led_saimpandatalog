@@ -111,7 +111,11 @@ void loop() {
             String nomorPengirim = ekstrakNomorPengirim(smsHeader);
             String isiSMS = Serial1.readStringUntil('\n');
             if (isiSMS.indexOf("where") != -1) {
-                kirimInfoGPS(nomorPengirim); // Memanggil dengan nomor pengirim
+                kirimInfoGPS(nomorPengirim); // Kirim informasi GPS
+                hapusSemuaSMS(); // Hapus semua SMS setelah membalas
+            } else if (isiSMS.indexOf("reset") != -1) {
+                inisialisasiSIM808(); // Melakukan reset pada SIM808
+                kirimSMS(nomorPengirim, "Reset berhasil"); // Mengirim SMS balasan
                 hapusSemuaSMS(); // Hapus semua SMS setelah membalas
             }
         }
@@ -214,6 +218,16 @@ int getSatelliteCount() {
     } else {
         return 0;
     }
+}
+
+void kirimSMS(String nomorTujuan, String isiPesan) {
+    Serial.println("Mengirim SMS...");
+    kirimPerintahAT("AT+CMGF=1", "OK", 5000); // Mengatur mode teks untuk SMS
+    kirimPerintahAT(("AT+CMGS=\"" + nomorTujuan + "\"").c_str(), ">", 10000); // Menyiapkan pengiriman SMS
+    Serial1.println(isiPesan); // Mengirim isi pesan
+    Serial1.write(26); // Karakter penutup CTRL+Z
+    delay(1000); // Menunggu pesan terkirim
+    Serial.println("SMS terkirim.");
 }
 
 // Fungsi untuk menambahkan header CSV jika file kosong atau baru dibuat
@@ -537,27 +551,23 @@ void inisialisasiSIM808() {
 
 }
 
-// Fungsi untuk membaca SMS dan memeriksa kata kunci "where"
-bool bacaSMS() {
-    if (kirimPerintahAT("AT+CMGL=\"ALL\"", "OK", 5000)) {
-        String response = "";
-        unsigned long start = millis();
-        while (millis() - start < 5000) {
-            if (Serial1.available()) {
-                char c = Serial1.read();
-                response += c;
-                if (response.indexOf("+CMT:") != -1) {
-                    int startIndex = response.indexOf("\"+") + 2; // Cari awal nomor pengirim
-                    int endIndex = response.indexOf("\",\"", startIndex); // Cari akhir nomor pengirim
-                    nomorPengirimSMS = response.substring(startIndex, endIndex); // Simpan nomor pengirim
-                    if (response.indexOf("where") != -1) {
-                        return true; // Kata "where" ditemukan
-                    }
-                }
+// Fungsi untuk membaca SMS dan menentukan jenis perintah
+String bacaSMS() {
+    if (Serial1.available()) {
+        String sms = Serial1.readString();
+        if (sms.indexOf("+CMT:") != -1) {
+            int startIndex = sms.indexOf("\"+") + 2;
+            int endIndex = sms.indexOf("\",\"", startIndex);
+            nomorPengirimSMS = sms.substring(startIndex, endIndex);
+
+            if (sms.indexOf("reset") != -1) {
+                return "reset";
+            } else if (sms.indexOf("where") != -1) {
+                return "where";
             }
         }
     }
-    return false; // Kata "where" tidak ditemukan atau AT command gagal
+    return ""; // Tidak ada perintah yang ditemukan
 }
 
 
