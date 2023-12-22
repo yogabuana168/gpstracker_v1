@@ -346,7 +346,7 @@ void rekoneksi() {
 void tampilkanDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 101;
+    jsonDoc["device_id"] = 102;
     jsonDoc["datetime"] = getFormattedDate(gps);
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
@@ -376,7 +376,7 @@ void tampilkanDataGPS() {
 String getDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 101;
+    jsonDoc["device_id"] = 102;
     jsonDoc["datetime"] = getFormattedDate(gps);
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
@@ -582,7 +582,7 @@ void kirimInfoGPS(String nomorTujuan) {
     int signalStrength = globalSignalQuality;
 
     // Isi SMS
-    String isiSMS = "Device_ID: 101\n";
+    String isiSMS = "Device_ID: 102\n";
     isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
     isiSMS += "Speed: " + speed + " Knots\n";
     isiSMS += "Satellites: " + String(satellites) + " HDOP: " + hdop + "\n";
