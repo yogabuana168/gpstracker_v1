@@ -66,15 +66,17 @@ void setup() {
         ; // Tunggu serial port terhubung. Hanya dibutuhkan untuk papan dengan USB serial native
     }
 
+
     Serial.println("Inisialisasi SD card...");
 
     pinMode(chipSelect, OUTPUT);
 
     if (!SD.begin(chipSelect)) {
         Serial.println("Inisialisasi SD card gagal!");
-        return;
+        // Jangan kembalikan fungsi; lanjutkan dengan inisialisasi lainnya
+    } else {
+        Serial.println("Inisialisasi SD card berhasil.");
     }
-    Serial.println("Inisialisasi SD card berhasil.");    
 
 
     // Inisialisasi pin LED dan komunikasi serial lainnya
