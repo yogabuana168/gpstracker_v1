@@ -677,9 +677,11 @@ void kirimInfoGPS(String nomorTujuan) {
     int satellites = gps.satellites.value();
     String hdop = String(gps.hdop.hdop(), 2);
     int signalStrength = globalSignalQuality;
+    String datetime = convertToUTC8(gps); // Mendapatkan datetime dalam UTC+8
 
     // Isi SMS
     String isiSMS = "Device_ID: 102\n";
+    isiSMS += "Datetime: " + datetime + "\n"; // Menambahkan datetime UTC+8
     isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
     isiSMS += "Speed: " + speed + " Knots\n";
     isiSMS += "Satellites: " + String(satellites) + " HDOP: " + hdop + "\n";
@@ -700,6 +702,19 @@ void hapusSemuaSMS() {
     // Mengirim perintah AT untuk menghapus semua SMS
     kirimPerintahAT("AT+CMGD=1,4", "OK", 5000);
     Serial.println("Semua SMS telah dihapus.");
+}
+
+//fungsi UTC+8
+String convertToUTC8(const TinyGPSPlus &gps) {
+    int hour = gps.time.hour() + 8; // Menambahkan 8 jam ke UTC
+    if (hour >= 24) hour -= 24; // Menyesuaikan jika melampaui tengah malam
+
+    char dateTime[32];
+    sprintf(dateTime, "%04d-%02d-%02d %02d:%02d:%02d UTC+8", 
+            gps.date.year(), gps.date.month(), gps.date.day(),
+            hour, gps.time.minute(), gps.time.second());
+
+    return String(dateTime);
 }
 
 // Fungsi untuk mendapatkan tanggal dan waktu dalam format tertentu dari data GPS
