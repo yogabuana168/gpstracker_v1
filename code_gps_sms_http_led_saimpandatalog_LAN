@@ -6,7 +6,7 @@
 #include <SoftwareSerial.h>
 #include <ArduinoJson.h>
 #include <SD.h>
-#include <ArduinoJson.h>
+
 
 // Konfigurasi Modul LAN W5500 Lite
 const int w5500ChipSelect = 7; // CS pin untuk W5500
