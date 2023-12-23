@@ -86,9 +86,10 @@ void setup() {
 
     if (!SD.begin(chipSelect)) {
         Serial.println("Inisialisasi SD card gagal!");
-        // Jangan kembalikan fungsi; lanjutkan dengan inisialisasi lainnya
+        Serial.println("Silakan format kartu SD menggunakan komputer atau alat lain.");
+        // Anda bisa menambahkan logika tambahan di sini jika perlu
     } else {
-        Serial.println("Inisialisasi SD card berhasil.");
+        Serial.println("Kartu SD berhasil diinisialisasi.");
     }
 
 
@@ -174,15 +175,28 @@ void loop() {
     EthernetClient client = server.available();
     if (client) {
         Serial.println("New client");
+        boolean currentLineIsBlank = true;
+        String httpReq = "";
         while (client.connected()) {
             if (client.available()) {
                 char c = client.read();
-                Serial.write(c);
-                
-                // Jika mendapat permintaan GET, kirim data GPS
-                if (c == '\n') {
-                    sendJsonResponse(client);
+                httpReq += c;
+                // Cek akhir header HTTP
+                if (c == '\n' && currentLineIsBlank) {
+                    // Memproses request
+                    if (httpReq.indexOf("GET /data ") >= 0) {
+                        // Jika request adalah untuk endpoint /data
+                        sendFile(client, "/data_log.csv"); // Ganti dengan nama file yang sesuai
+                    } else {
+                        // Untuk request lainnya, termasuk endpoint yang tidak dikenali
+                        sendJsonResponse(client); // Fungsi yang sudah ada
+                    }
                     break;
+                }
+                if (c == '\n') {
+                    currentLineIsBlank = true;
+                } else if (c != '\r') {
+                    currentLineIsBlank = false;
                 }
             }
         }
@@ -269,6 +283,23 @@ void sendJsonResponse(EthernetClient &client) {
     client.println("Connection: close");
     client.println();
     client.println(jsonData);
+}
+
+// Fungsi untuk mengirimkan file ke client LAN W5500
+void sendFile(EthernetClient client, String path) {
+    File file = SD.open(path);
+    if (file) {
+        while (file.available()) {
+            client.write(file.read()); // Kirim file byte per byte
+        }
+        file.close();
+    } else {
+        // Kirim respons bahwa file tidak ditemukan
+        client.println("HTTP/1.1 404 Not Found");
+        client.println("Content-Type: text/plain");
+        client.println();
+        client.println("File not found.");
+    }
 }
 
 // Fungsi untuk menambahkan header CSV jika file kosong atau baru dibuat
