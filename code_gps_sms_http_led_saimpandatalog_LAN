@@ -27,11 +27,6 @@ const int bufferSize = 256;
 unsigned long lastDisplayTime = 0;
 const long displayInterval = 300000; // 5 menit
 
-// Buffer untuk penyimpanan data GPS jika sinyal buruk
-const int maxBuffer = 4;
-String dataBuffer[maxBuffer];
-int bufferIndex = 0;
-
 // Variabel untuk menyimpan kualitas sinyal
 int globalSignalQuality = -1;
 
@@ -163,11 +158,6 @@ void loop() {
             }
         }
         lastDisplayTime = currentMillis;
-    }
-
-    // Cek buffer dan kirim data yang belum terkirim jika koneksi berhasil
-    if (bufferIndex > 0 && cekRegistrasiGPRS()) {
-        kirimDataDariBuffer();
     }
 
     // Cek jumlah satelit dan perbarui status LED
@@ -413,14 +403,13 @@ void tampilkanDataGPS() {
 
     // Cek kualitas sinyal sebelum mengirim data
     if (!cekSinyal()) {
-        // Jika sinyal buruk, simpan data ke buffer
-        if (bufferIndex < maxBuffer) {
-            dataBuffer[bufferIndex++] = jsonString;
-        }
+        // Jika sinyal buruk, simpan data langsung ke microSD
+        simpanDataKeSD(jsonString);
         return;
     }
     // Jika sinyal baik, kirim data ke server
     kirimDataKeServer(jsonString);
+
 }
 
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format JSON
@@ -446,14 +435,6 @@ String getDataGPS() {
     Serial.println(jsonString);
 
     return jsonString;
-}
-
-// Fungsi untuk mengirim data dari buffer ke server
-void kirimDataDariBuffer() {
-    for (int i = 0; i < bufferIndex; i++) {
-        kirimDataKeServer(dataBuffer[i]);
-    }
-    bufferIndex = 0; // Reset buffer setelah data terkirim
 }
 
 // Fungsi untuk mengirim data ke server melalui HTTP POST
