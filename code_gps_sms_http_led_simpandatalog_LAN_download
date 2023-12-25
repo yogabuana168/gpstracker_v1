@@ -148,9 +148,11 @@ void loop() {
     if (currentMillis - lastPreDataSendInternetCheckTime >= displayInterval - 60000 && 
         currentMillis - lastDisplayTime >= displayInterval - 60000) {
         cekSinyal();
+        cekStatusGPRS(); // Memeriksa status GPRS
         cekKoneksiInternet();
         lastPreDataSendInternetCheckTime = currentMillis;
     }
+
     
 
     // Cek apakah sudah waktunya mengirim data GPS reguler
@@ -392,8 +394,7 @@ void updateLedState(bool redState, bool blueState) {
 }
 
 bool cekKoneksiInternet() {
-    // Inisialisasi HTTP service untuk memeriksa koneksi internet
-    kirimPerintahAT("AT+HTTPINIT", "OK", 10000);
+    // Inisialisasi HTTP service untuk memeriksa koneksi internet    
     kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000);
     kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://www.google.com\"", "OK", 5000);
 
@@ -521,7 +522,7 @@ bool kirimDataKeServer(const String& data) {
     delay(1000);
 
     // Inisialisasi sesi HTTP baru
-    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    kirimPerintahAT("AT+HTTPINIT", "OK", 5000);
     kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
     kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://track.gpscenter.id/api/data.php\"", "OK", 2000);
     kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
@@ -604,12 +605,21 @@ bool kirimDataKeServer(const String& data) {
 }
 
 
-// Fungsi untuk memeriksa status koneksi GPRS
+// Fungsi untuk memeriksa status koneksi GPRS berdasarkan keberadaan alamat IP
 bool cekStatusGPRS() {
-    Serial.println("Memeriksa status GPRS...");
-    kirimPerintahAT("AT+SAPBR=2,1", "OK", 5000);
+    Serial.println("Memeriksa status attachment GPRS...");
+    kirimPerintahAT("AT+CGATT?", "OK", 5000);
     delay(1000);
-    if (Serial1.find("+SAPBR: 1,1")) {
+
+    // Membaca dan menganalisis respons
+    String response = "";
+    while (Serial1.available()) {
+        char c = Serial1.read();
+        response += c;
+    }
+
+    // Mengecek apakah respons mengandung "+CGATT: 1"
+    if (response.indexOf("+CGATT: 1") != -1) {
         Serial.println("GPRS terhubung.");
         return true;
     } else {
@@ -617,6 +627,9 @@ bool cekStatusGPRS() {
         return false;
     }
 }
+
+
+
 
 // Fungsi untuk menginisialisasi modul SIM808
 void inisialisasiSIM808() {
@@ -641,13 +654,17 @@ void inisialisasiSIM808() {
     kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
     kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
 
-    kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000);
-
-    kirimPerintahAT("AT+HTTPINIT", "OK", 2000);
+    // Mengakhiri sesi HTTP yang mungkin masih berlangsung
+    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
     delay(2000);
-    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
 
+    kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000);
+    kirimPerintahAT("AT+HTTPINIT", "OK", 5000); // Diperpanjang menjadi 5 detik
+    delay(2000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000); // Diperpanjang menjadi 5 detik
 }
+
+
 
 // Fungsi untuk membaca SMS dan menentukan jenis perintah
 String bacaSMS() {
