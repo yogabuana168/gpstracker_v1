@@ -62,6 +62,10 @@ const long gprsCheckInterval = 120000; // 2 menit dalam milidetik
 unsigned long lastDataSendTime = 0;
 const long networkCheckIntervalAfterSend = 150000; // 2.5 menit dalam milidetik
 
+// Timer untuk pengecekan status GPRS dan Internet
+unsigned long lastInternetCheckTime = 0;
+const long internetCheckInterval = 150000; // 2.5 menit dalam milidetik
+
 // Variabel global untuk nama file log data
 const char* namaFileLog = "/data_log.csv";
 
@@ -137,12 +141,20 @@ void loop() {
     }
 
     // Pengecekan jaringan setiap 2.5 menit setelah pengiriman data ke server berhasil
-    if (currentMillis - lastDataSendTime >= networkCheckIntervalAfterSend) {
-        if (!cekRegistrasiGPRS()) {
-            inisialisasiSIM808();
-        }
-        lastDataSendTime = currentMillis; // Reset waktu pengiriman data terakhir
+    // if (currentMillis - lastDataSendTime >= networkCheckIntervalAfterSend) {
+    //     if (!cekRegistrasiGPRS()) {
+    //         inisialisasiSIM808();
+    //     }
+    //     lastDataSendTime = currentMillis; // Reset waktu pengiriman data terakhir
+    // }
+
+    // Pengecekan koneksi internet setiap 2.5 menit
+    if (currentMillis - lastInternetCheckTime >= internetCheckInterval) {
+        cekSinyal();
+        cekKoneksiInternet();
+        lastInternetCheckTime = currentMillis;
     }
+
     
 
     // Cek apakah sudah waktunya mengirim data GPS reguler
@@ -396,6 +408,67 @@ void tampilkanJumlahDataLogSD() {
     Serial.println(jumlahBaris);
 }
 
+bool cekKoneksiInternet() {
+    // Inisialisasi HTTP service untuk memeriksa koneksi internet
+    kirimPerintahAT("AT+HTTPINIT", "OK", 10000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000);
+    kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://www.google.com\"", "OK", 5000);
+
+    // Mulai GET action
+    Serial.println("Melakukan HTTP GET request...");
+
+    if (kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200,", 20000)) {
+        Serial.println("HTTP GET request berhasil, terhubung ke internet!");
+        // Mengembalikan true jika permintaan HTTP GET berhasil
+        return true;
+    } else if (kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200,", 25000)) {
+        Serial.println("HTTP GET request berhasil, terhubung ke internet!");
+        // Mengembalikan true jika permintaan HTTP GET berhasil
+        return true;
+    } else if (kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200,", 30000)) {
+        Serial.println("HTTP GET request berhasil, terhubung ke internet!");
+        // Mengembalikan true jika permintaan HTTP GET berhasil
+        return true;
+    } else {
+        Serial.println("Gagal melakukan HTTP GET request, periksa koneksi GPRS atau saldo data.");
+        // Jika permintaan HTTP GET gagal, mengembalikan false
+        // dan inisialisasi ulang SIM808
+        inisialisasiSIM808();
+        return false;
+    }
+
+    // Hentikan HTTP service untuk melepaskan resource
+    kirimPerintahAT("AT+HTTPTERM", "OK", 5000);
+}
+
+
+bool kirimPerintahAT(const String& perintah, const String& responsExpected, unsigned long timeout) {
+    Serial1.println(perintah);
+    Serial.print("Kirim ke SIM808: ");
+    Serial.println(perintah);
+
+    unsigned long start = millis();
+    String responModul = "";
+    while (millis() - start < timeout) {
+        if (Serial1.available()) {
+            char c = Serial1.read();
+            responModul += c;
+
+            if (responModul.endsWith("\r\n")) {
+                Serial.print("Respon dari SIM808: ");
+                Serial.println(responModul);
+                if (responModul.indexOf(responsExpected) != -1) {
+                    return true; // Jika respons yang diharapkan ditemukan
+                }
+                responModul = ""; // Bersihkan untuk baris berikutnya
+            }
+        }
+    }
+    return false; // Jika respons yang diharapkan tidak ditemukan
+}
+
+
+
 bool saveJSonToAFile(DynamicJsonDocument *doc, const char* filename) {
     SD.remove(filename);
  
@@ -555,13 +628,13 @@ bool kirimDataKeServer(const String& data) {
                     // Simpan data ke SD card jika pengiriman gagal
                     simpanDataKeSD(data);
                     Serial.println("Data has been saved to microSD card.");
-                    // Coba ping ke Google DNS untuk memeriksa koneksi
-                    if (!pingGoogleDNS()) {
+                    // Coba koneksi internet
+                    if (!cekKoneksiInternet()) {
                         // Ping gagal, inisialisasi ulang modul SIM808
                         inisialisasiSIM808();
-                        Serial.println("Ping to Google DNS failed, reinitializing SIM808.");
+                        Serial.println("koneksi internet failed, reinitializing SIM808.");
                         } else {
-                            Serial.println("Ping to Google DNS successful, no need to reinitialize SIM808.");
+                            Serial.println("koneksi internet successful, no need to reinitialize SIM808.");
                         }
                     break;
                 }
