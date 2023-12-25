@@ -69,6 +69,10 @@ const long internetCheckInterval = 150000; // 2.5 menit dalam milidetik
 // Variabel global untuk nama file log data
 const char* namaFileLog = "/data_log.csv";
 
+//melacak waktu terakhir ketika pengecekan koneksi internet dilakukan sebelum mengirim data GPS
+unsigned long lastPreDataSendInternetCheckTime = 0;
+
+
 void setup() {
     // Inisialisasi komunikasi serial untuk debugging
     Serial.begin(9600);
@@ -140,21 +144,13 @@ void loop() {
         }
     }
 
-    // Pengecekan jaringan setiap 2.5 menit setelah pengiriman data ke server berhasil
-    // if (currentMillis - lastDataSendTime >= networkCheckIntervalAfterSend) {
-    //     if (!cekRegistrasiGPRS()) {
-    //         inisialisasiSIM808();
-    //     }
-    //     lastDataSendTime = currentMillis; // Reset waktu pengiriman data terakhir
-    // }
-
-    // Pengecekan koneksi internet setiap 2.5 menit
-    if (currentMillis - lastInternetCheckTime >= internetCheckInterval) {
+    // Pengecekan koneksi internet 1 menit sebelum mengirim data GPS
+    if (currentMillis - lastPreDataSendInternetCheckTime >= displayInterval - 60000 && 
+        currentMillis - lastDisplayTime >= displayInterval - 60000) {
         cekSinyal();
         cekKoneksiInternet();
-        lastInternetCheckTime = currentMillis;
+        lastPreDataSendInternetCheckTime = currentMillis;
     }
-
     
 
     // Cek apakah sudah waktunya mengirim data GPS reguler
@@ -395,19 +391,6 @@ void updateLedState(bool redState, bool blueState) {
     }
 }
 
-// Fungsi untuk menampilkan jumlah data log di SD card
-void tampilkanJumlahDataLogSD() {
-    const char* namaFile = "/data_log.txt";
-    File file = SD.open(namaFile);
-    int jumlahBaris = 0;
-    while (file.available()) {
-        if (file.readStringUntil('\n').length() > 0) jumlahBaris++;
-    }
-    file.close();
-    Serial.print("Jumlah data log di SD: ");
-    Serial.println(jumlahBaris);
-}
-
 bool cekKoneksiInternet() {
     // Inisialisasi HTTP service untuk memeriksa koneksi internet
     kirimPerintahAT("AT+HTTPINIT", "OK", 10000);
@@ -465,61 +448,6 @@ bool kirimPerintahAT(const String& perintah, const String& responsExpected, unsi
         }
     }
     return false; // Jika respons yang diharapkan tidak ditemukan
-}
-
-
-
-bool saveJSonToAFile(DynamicJsonDocument *doc, const char* filename) {
-    SD.remove(filename);
- 
-    // open the file. note that only one file can be open at a time,
-    // so you have to close this one before opening another.
-    Serial.println(F("Open file in write mode"));
-    File file = SD.open(filename, FILE_WRITE);
-    if (file) {
-        Serial.print(F("Filename --> "));
-        Serial.println(filename);
- 
-        Serial.print(F("Start write..."));
- 
-        serializeJson(*doc, file);
- 
-        Serial.print(F("..."));
-        // close the file:
-        file.close();
-        Serial.println(F("done."));
- 
-        return true;
-    } else {
-        // if the file didn't open, print an error:
-        Serial.print(F("Error opening "));
-        Serial.println(filename);
- 
-        return false;
-    }
-}
-
-bool cekRegistrasiGPRS() {
-    Serial1.println("AT+CREG?");
-    delay(1000); // Tambahkan delay untuk memberi waktu pada modul
-    unsigned long start = millis();
-    while (millis() - start < 5000) { // Timeout 5 detik
-        if (Serial1.available()) {
-            String res = Serial1.readStringUntil('\n');
-            if (res.startsWith("+CREG:")) {
-                int status = res.substring(res.lastIndexOf(",") + 1).toInt();
-                if (status == 1 || status == 5) {
-                    Serial.println("Modul terdaftar di jaringan.");
-                    return true; // Terdaftar di jaringan
-                } else {
-                    Serial.println("Modul tidak terdaftar di jaringan.");
-                    return false; // Tidak terdaftar di jaringan
-                }
-            }
-        }
-    }
-    Serial.println("Timeout menunggu respons registrasi jaringan.");
-    return false; // Timeout tanpa respons
 }
 
 // Fungsi untuk menginisialisasi ulang modul SIM808 jika terjadi masalah konektivitas
@@ -675,29 +603,6 @@ bool kirimDataKeServer(const String& data) {
     return false; // Kembalikan false jika keseluruhan proses tidak berhasil
 }
 
-// Fungsi untuk melakukan ping ke Google DNS
-bool pingGoogleDNS() {
-    Serial1.println("AT+CIPPING=\"8.8.8.8\"");
-    unsigned long start = millis();
-    while (millis() - start < 10000) { // Menunggu maksimal 10 detik
-        if (Serial1.available()) {
-            String res = Serial1.readStringUntil('\n');
-            if (res.indexOf("+CIPPING:") != -1) {
-                if (res.indexOf(",0,") != -1) { // Cari substring yang menunjukkan sukses ping
-                    Serial.println("Ping to 8.8.8.8 successful.");
-                    return true;
-                } else {
-                    Serial.println("Ping to 8.8.8.8 failed.");
-                    return false;
-                }
-            }
-        }
-    }
-    Serial.println("Ping to 8.8.8.8 timed out.");
-    return false;
-}
-
-
 
 // Fungsi untuk memeriksa status koneksi GPRS
 bool cekStatusGPRS() {
@@ -712,37 +617,6 @@ bool cekStatusGPRS() {
         return false;
     }
 }
-
-// Fungsi untuk mengaktifkan GPRS
-void aktifkanGPRS() {
-    const int maxAttempts = 3; // Maksimal 3 upaya pengaktifan
-    bool gprsActivated = false;
-
-    for (int attempts = 0; attempts < maxAttempts; attempts++) {
-        // Konfigurasi parameter GPRS
-        kirimPerintahAT("AT+SAPBR=3,1,\"Contype\",\"GPRS\"", "OK", 2000);
-        kirimPerintahAT("AT+SAPBR=3,1,\"APN\",\"internet\"", "OK", 2000);
-        kirimPerintahAT("AT+SAPBR=3,1,\"USER\",\"wap\"", "OK", 2000);
-        kirimPerintahAT("AT+SAPBR=3,1,\"PWD\",\"wap123\"", "OK", 2000);
-
-        // Mengaktifkan bearer profil
-        if (kirimPerintahAT("AT+SAPBR=1,1", "OK", 10000)) {
-            delay(5000); // Berikan waktu bagi modul untuk terhubung
-            if (cekStatusGPRS()) {
-                Serial.println("GPRS berhasil diaktifkan.");
-                gprsActivated = true;
-                break; // Keluar dari loop jika berhasil terhubung
-            }
-        }
-        Serial.println("Gagal mengaktifkan GPRS, mencoba lagi...");
-    }
-
-    if (!gprsActivated) {
-        Serial.println("Gagal mengaktifkan GPRS setelah beberapa upaya, melakukan inisialisasi ulang...");
-        inisialisasiSIM808(); // Inisialisasi ulang modul SIM808
-    }
-}
-
 
 // Fungsi untuk menginisialisasi modul SIM808
 void inisialisasiSIM808() {
