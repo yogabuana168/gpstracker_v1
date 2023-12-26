@@ -148,7 +148,7 @@ void loop() {
     if (currentMillis - lastPreDataSendInternetCheckTime >= displayInterval - 60000 && 
         currentMillis - lastDisplayTime >= displayInterval - 60000) {
         cekSinyal();
-        cekStatusGPRS(); // Memeriksa status GPRS
+        // cekStatusGPRS(); // Memeriksa status GPRS
         cekKoneksiInternet();
         lastPreDataSendInternetCheckTime = currentMillis;
     }
@@ -387,10 +387,12 @@ void updateLedState(bool redState, bool blueState) {
         digitalWrite(RedLEDPin, redState ? HIGH : LOW);
         lastLedStateRed = redState;
     }
+    // Dalam fungsi updateLedState()
     if (lastLedStateBlue != blueState) {
-        digitalWrite(BlueLEDPin, blueState ? HIGH : LOW);
+        analogWrite(BlueLEDPin, blueState ? ledBrightness : 0);
         lastLedStateBlue = blueState;
     }
+
 }
 
 bool cekKoneksiInternet() {
@@ -609,16 +611,36 @@ bool kirimDataKeServer(const String& data) {
 bool cekStatusGPRS() {
     Serial.println("Memeriksa status attachment GPRS...");
     kirimPerintahAT("AT+CGATT?", "OK", 5000);
-    delay(1000);
 
-    // Membaca dan menganalisis respons
+    unsigned long startTime = millis();
     String response = "";
-    while (Serial1.available()) {
-        char c = Serial1.read();
-        response += c;
+    bool responseReceived = false;
+
+    // Loop menunggu respons selama maksimal 5 detik
+    while (millis() - startTime < 5000) {
+        if (Serial1.available()) {
+            char c = Serial1.read();
+            response += c;
+            if (response.endsWith("\r\n")) {
+                // Respons lengkap diterima
+                responseReceived = true;
+                break;
+            }
+        }
     }
 
-    // Mengecek apakah respons mengandung "+CGATT: 1"
+    // Penanganan jika tidak ada respons atau terjadi error
+    if (!responseReceived) {
+        Serial.println("Timeout atau tidak ada respons dari modul.");
+        return false;
+    }
+
+    if (response.indexOf("ERROR") != -1) {
+        Serial.println("Respons ERROR dari modul.");
+        return false;
+    }
+
+    // Mengecek apakah modul terhubung ke jaringan GPRS
     if (response.indexOf("+CGATT: 1") != -1) {
         Serial.println("GPRS terhubung.");
         return true;
