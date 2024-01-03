@@ -522,29 +522,22 @@ bool kirimDataKeServer(const String& dataJSON) {
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
     bool isDataSent = false;
     int attemptCount = 0;
-    String errorMessage;
 
     while (attemptCount < 3 && !isDataSent) {
         // Pastikan tidak ada sesi HTTP yang masih berjalan
         if (!kirimPerintahAT("AT+HTTPTERM", "OK", 2000)) {
-            errorMessage = "Gagal menutup sesi HTTP sebelumnya.";
-            logError(errorMessage);
             break;
         }
         delay(1000);
 
         // Inisialisasi sesi HTTP baru
         if (!kirimPerintahAT("AT+HTTPINIT", "OK", 5000)) {
-            errorMessage = "Gagal menginisialisasi sesi HTTP.";
-            logError(errorMessage);
             break;
         }
 
         if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
             !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/data.php\"", "OK", 2000) ||
             !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000)) {
-            errorMessage = "Gagal mengatur parameter HTTP.";
-            logError(errorMessage);
             break;
         }
 
@@ -556,8 +549,6 @@ bool kirimDataKeServer(const String& dataJSON) {
 
             // Mulai aksi HTTP POST
             if (!kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000)) {
-                errorMessage = "Gagal memulai aksi HTTP POST.";
-                logError(errorMessage);
                 break;
             }
 
@@ -576,16 +567,13 @@ bool kirimDataKeServer(const String& dataJSON) {
                         } else {
                             Serial.print("HTTP POST failed with status code: ");
                             Serial.println(statusCode);
-                            errorMessage = "HTTP POST failed with status code: " + String(statusCode);
-                            logError(errorMessage);
                             break;
                         }
                     }
                 }
             }
         } else {
-            errorMessage = "Gagal mengirim data dengan AT+HTTPDATA.";
-            logError(errorMessage);
+            break;
         }
 
         // Jika gagal pada percobaan pertama, simpan ke SD card dalam format CSV
@@ -600,33 +588,10 @@ bool kirimDataKeServer(const String& dataJSON) {
     // Jika setelah 3 kali percobaan data tidak terkirim, inisialisasi ulang SIM808
     if (!isDataSent) {
         inisialisasiSIM808();
-        errorMessage = "Tiga kali percobaan pengiriman gagal, SIM808 diinisialisasi ulang.";
-        logError(errorMessage);
     }
 
     return isDataSent;
 }
-
-
-void logError(const String& errorMessage) {
-    // Membuka atau membuat file log_error.csv
-    File file = SD.open("log_error.csv", FILE_WRITE);
-    if (file) {
-        // Jika file baru dibuat, tambahkan header
-        if (file.size() == 0) {
-            file.println("Tanggal,Waktu,Error");
-        }
-        // Format tanggal dan waktu sesuai kebutuhan
-        String formattedDate = getFormattedDate(gps); // asumsikan ini mengembalikan tanggal dan waktu
-        String logEntry = formattedDate + "," + errorMessage; // Data dipisahkan dengan koma
-        file.println(logEntry);
-        file.close();
-    } else {
-        Serial.println("Gagal membuka log_error.csv");
-    }
-}
-
-
 
 
 
