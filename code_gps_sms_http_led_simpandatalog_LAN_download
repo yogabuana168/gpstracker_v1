@@ -224,7 +224,7 @@ String ekstrakNomorPengirim(String header) {
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format CSV
 String getDataCSV() {
     String dataCSV;
-    dataCSV += getFormattedDate(gps) + ",";
+    dataCSV += convertToUTC8(gps) + ","; // Gunakan waktu UTC+8
     dataCSV += String(gps.location.lat(), 6) + ",";
     dataCSV += String(gps.location.lng(), 6) + ",";
     dataCSV += String(gps.speed.knots(), 2) + ",";
@@ -234,6 +234,7 @@ String getDataCSV() {
     
     return dataCSV;
 }
+
 
 // Fungsi untuk memeriksa kualitas sinyal seluler
 int cekSinyal() {
@@ -464,7 +465,7 @@ void rekoneksi() {
 void tampilkanDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 102;
+    jsonDoc["device_id"] = 101;
     jsonDoc["datetime"] = getFormattedDate(gps);
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
@@ -493,8 +494,8 @@ void tampilkanDataGPS() {
 String getDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 102;
-    jsonDoc["datetime"] = getFormattedDate(gps);
+    jsonDoc["device_id"] = 101;
+    jsonDoc["datetime"] = convertToUTC8(gps); // Gunakan waktu yang sudah diubah ke UTC+8
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
     jsonDoc["speed_knots"] = gps.speed.knots();
@@ -514,97 +515,80 @@ String getDataGPS() {
     return jsonString;
 }
 
+
 // Fungsi untuk mengirim data ke server melalui HTTP POST
-bool kirimDataKeServer(const String& data) {
-    int dataLength = data.length();
+bool kirimDataKeServer(const String& dataJSON) {
+    int dataLength = dataJSON.length();
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
-
-    // Pastikan tidak ada sesi HTTP yang masih berjalan
-    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
-    delay(1000);
-
-    // Inisialisasi sesi HTTP baru
-    kirimPerintahAT("AT+HTTPINIT", "OK", 5000);
-    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000);
-    kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://track.gpscenter.id/api/data.php\"", "OK", 2000);
-    kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000);
-    Serial.println("HTTP session initialized.");
-
-    // Siapkan untuk mengirim data
-    if (kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000)) {
-        // Kirim data JSON ke modul SIM808
-        Serial1.print(data);
-        delay(1000); // Tunggu data terkirim
-
-        // Mulai aksi HTTP POST
-        kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000);
-
-    // Tunggu respons dari aksi HTTP POST
     bool isDataSent = false;
-    unsigned long startWaitTime = millis();
-    while (millis() - startWaitTime < 60000) { // Tunggu maksimal 60 detik untuk respons
-        if (Serial1.available()) {
-            String line = Serial1.readStringUntil('\n');
-            if (line.startsWith("+HTTPACTION:")) {
-                Serial.println(line); // Cetak respons lengkap untuk debug
-                int statusCode = line.substring(line.indexOf(",") + 1, line.lastIndexOf(",")).toInt();
-                if (statusCode == 200) {
-                    Serial.println("HTTP POST successful with status code 200.");
-                    isDataSent = true;
-                    lastDataSendTime = millis(); // Perbarui waktu pengiriman data terakhir
-                    break; // Keluar dari loop jika respons diterima
-                } else {
-                    Serial.print("HTTP POST failed with status code: ");
-                    Serial.println(statusCode);
-                    // Simpan data ke SD card jika pengiriman gagal
-                    simpanDataKeSD(data);
-                    Serial.println("Data has been saved to microSD card.");
-                    // Coba koneksi internet
-                    if (!cekKoneksiInternet()) {
-                        // Ping gagal, inisialisasi ulang modul SIM808
-                        inisialisasiSIM808();
-                        Serial.println("koneksi internet failed, reinitializing SIM808.");
-                        } else {
-                            Serial.println("koneksi internet successful, no need to reinitialize SIM808.");
-                        }
-                    break;
-                }
-            }
-        }
-    }
+    int attemptCount = 0;
 
-        // Jika data dikirim dengan sukses, baca balasan dari server
-        if (isDataSent) {
-            // Lanjutkan dengan membaca respons server menggunakan AT+HTTPREAD
-            kirimPerintahAT("AT+HTTPREAD", "OK", 5000);
-            String httpResponse;
-            startWaitTime = millis();
-            while (millis() - startWaitTime < 15000) { // Tunggu maksimal 15 detik untuk respons
-                if (Serial1.available()) {
-                    httpResponse = Serial1.readStringUntil('\n');
-                    if (httpResponse.length() > 0) {
-                        Serial.println(httpResponse); // Cetak respons server untuk debug
-                        break;
+    while (attemptCount < 3 && !isDataSent) {
+        // Pastikan tidak ada sesi HTTP yang masih berjalan
+        kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
+        delay(1000);
+
+        // Inisialisasi sesi HTTP baru
+        if (kirimPerintahAT("AT+HTTPINIT", "OK", 5000) &&
+            kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) &&
+            kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/data.php\"", "OK", 2000) &&
+            kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000)) {
+
+            Serial.println("HTTP session initialized.");
+
+            // Siapkan untuk mengirim data
+            if (kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000)) {
+                // Kirim data JSON ke modul SIM808
+                Serial1.print(dataJSON);
+                delay(1000); // Tunggu data terkirim
+
+                // Mulai aksi HTTP POST
+                if (kirimPerintahAT("AT+HTTPACTION=1", "OK", 5000)) {
+                    unsigned long startWaitTime = millis();
+                    // Tunggu respons dari aksi HTTP POST
+                    while (millis() - startWaitTime < 60000) {
+                        if (Serial1.available()) {
+                            String line = Serial1.readStringUntil('\n');
+                            if (line.startsWith("+HTTPACTION:")) {
+                                Serial.println(line);
+                                int statusCode = line.substring(line.indexOf(",") + 1, line.lastIndexOf(",")).toInt();
+                                if (statusCode == 200) {
+                                    Serial.println("HTTP POST successful with status code 200.");
+                                    isDataSent = true;
+                                    lastDataSendTime = millis();
+                                    break; // Data terkirim, keluar dari loop
+                                } else {
+                                    Serial.print("HTTP POST failed with status code: ");
+                                    Serial.println(statusCode);
+                                    break;
+                                }
+                            }
+                        }
                     }
                 }
             }
-            return true;
-        } else {
-            // Simpan data ke SD card jika pengiriman gagal
-            simpanDataKeSD(data);
+
+            // Jika gagal pada percobaan pertama, simpan ke SD card dalam format CSV
+            if (!isDataSent && attemptCount == 0) {
+                String dataCSV = getDataCSV(); // Konversi data JSON ke CSV
+                simpanDataKeSD(dataCSV);
+            }
+
+            // Tutup sesi HTTP setelah selesai
+            kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
         }
-    } else {
-        // HTTPDATA command gagal, lakukan inisialisasi ulang
-        Serial.println("HTTPDATA command failed, reinitializing SIM808.");
-        // Simpan data ke SD card jika HTTPDATA command gagal
-        simpanDataKeSD(data);
+
+        attemptCount++;
+    }
+
+    // Jika setelah 3 kali percobaan data tidak terkirim, inisialisasi ulang SIM808
+    if (!isDataSent) {
         inisialisasiSIM808();
     }
 
-    // Tutup sesi HTTP setelah selesai
-    kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
-    return false; // Kembalikan false jika keseluruhan proses tidak berhasil
+    return isDataSent;
 }
+
 
 
 // Fungsi untuk memeriksa status koneksi GPRS berdasarkan keberadaan alamat IP
@@ -720,7 +704,7 @@ void kirimInfoGPS(String nomorTujuan) {
     String datetime = convertToUTC8(gps); // Mendapatkan datetime dalam UTC+8
 
     // Isi SMS
-    String isiSMS = "Device_ID: 102\n";
+    String isiSMS = "Device_ID: 101\n";
     isiSMS += "Datetime: " + datetime + "\n"; // Menambahkan datetime UTC+8
     isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
     isiSMS += "Speed: " + speed + " Knots\n";
