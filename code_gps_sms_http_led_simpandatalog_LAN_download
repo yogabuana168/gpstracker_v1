@@ -155,14 +155,14 @@ void loop() {
 
     
 
-    // Cek apakah sudah waktunya mengirim data GPS reguler
     if (currentMillis - lastDisplayTime >= displayInterval) {
         if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
             String dataGPS = getDataGPS(); // Data dalam format JSON
 
-            // Coba kirim data ke server, jika gagal simpan ke SD card dalam format CSV
+            // Coba kirim data ke server dalam format JSON
             if (!kirimDataKeServer(dataGPS)) {
+                // Jika pengiriman gagal, simpan data dalam format CSV ke kartu SD
                 String dataCSV = getDataCSV(); // Data dalam format CSV
                 simpanDataKeSD(dataCSV);
             }
