@@ -455,8 +455,12 @@ bool cekKoneksiInternet() {
         // Memeriksa status registrasi jaringan
         Serial.println("Memeriksa status registrasi jaringan GSM...");
         if (!cekRegistrasiJaringan()) {
-            Serial.println("Modul tidak terdaftar di jaringan GSM.");
-            return false;
+            Serial.println("Modul tidak terdaftar di jaringan GSM. Mencoba menginisialisasi ulang...");
+            inisialisasiSIM808(); // Mencoba inisialisasi ulang modul SIM808
+            // Setelah menginisialisasi ulang, mungkin perlu memeriksa kembali status registrasi
+            if (!cekRegistrasiJaringan()) {
+                return false; // Jika masih tidak terdaftar, kembalikan false
+            }
         }
 
         // Jika sudah terdaftar di jaringan GSM, lakukan koneksi GPRS
@@ -690,23 +694,23 @@ bool cekStatusGPRS() {
 // Fungsi untuk memeriksa status registrasi jaringan
 bool cekRegistrasiJaringan() {
     Serial.println("Memeriksa status registrasi jaringan GSM...");
-    kirimPerintahAT("AT+CREG?", "OK", 10000);
+    unsigned long start = millis();
+    bool terdaftar = false;
 
-    String respon;
-    while (Serial1.available()) {
-        respon += (char)Serial1.read();
+    while (millis() - start < 15000 && !terdaftar) { // Loop selama 15 detik
+        if(kirimPerintahAT("AT+CREG?", "+CREG: 0,1", 5000) || kirimPerintahAT("AT+CREG?", "+CREG: 0,5", 5000)) {
+            terdaftar = true;
+            Serial.println("Modul terdaftar di jaringan GSM.");
+        } else {
+            delay(2500); // Tunggu sebelum mencoba lagi
+        }
     }
 
-    // Cetak respons yang diterima untuk debugging
-    Serial.println(respon);
-
-    if (respon.indexOf("+CREG: 0,1") != -1 || respon.indexOf("+CREG: 0,5") != -1) {
-        Serial.println("Modul terdaftar di jaringan GSM.");
-        return true;
-    } else {
-        Serial.println("Modul tidak terdaftar di jaringan GSM.");
-        return false;
+    if (!terdaftar) {
+        Serial.println("Modul tidak terdaftar di jaringan GSM setelah waktu tunggu.");
     }
+
+    return terdaftar; // Kembalikan status terdaftar atau tidak
 }
 
 
