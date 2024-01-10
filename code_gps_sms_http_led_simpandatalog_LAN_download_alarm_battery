@@ -324,17 +324,19 @@ String ekstrakNomorPengirim(String header) {
 
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format CSV
 String getDataCSV() {
-    String dataCSV;
+    String dataCSV;    
+    dataCSV += "101,"; // Ganti dengan variabel yang sesuai jika device_id dinamis
     dataCSV += convertToUTC8(gps) + ","; // Gunakan waktu UTC+8
     dataCSV += String(gps.location.lat(), 6) + ",";
     dataCSV += String(gps.location.lng(), 6) + ",";
     dataCSV += String(gps.speed.knots(), 2) + ",";
+    dataCSV += String(gps.course.deg()) + ","; // Menambahkan course
     dataCSV += String(gps.satellites.value()) + ",";
     dataCSV += String(gps.hdop.value()) + ",";
-    dataCSV += String(globalSignalQuality);
-    dataCSV += "," + String(powerStatusIndicator); // Tambahkan status power ke akhir data CSV
-    dataCSV += "," + String(batteryPercentage);
-    
+    dataCSV += String(globalSignalQuality) + ",";
+    dataCSV += String(powerStatusIndicator) + ","; // Tambahkan status power ke akhir data CSV
+    dataCSV += String(batteryPercentage);
+
     return dataCSV;
 }
 
