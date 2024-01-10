@@ -208,9 +208,9 @@ void loop() {
         }
     }
 
-    // Pengecekan koneksi internet 1 menit sebelum mengirim data GPS
-    if (currentMillis - lastPreDataSendInternetCheckTime >= displayInterval - 60000 && 
-        currentMillis - lastDisplayTime >= displayInterval - 60000 && 
+    // Pengecekan koneksi internet 2 menit sebelum mengirim data GPS
+    if (currentMillis - lastPreDataSendInternetCheckTime >= displayInterval - 120000 && 
+        currentMillis - lastDisplayTime >= displayInterval - 120000 && 
         !isHandlingLANRequest) {
         cekSinyal();
         cekKoneksiInternet();
