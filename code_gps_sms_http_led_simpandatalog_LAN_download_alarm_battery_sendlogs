@@ -90,7 +90,9 @@ const unsigned long tenHoursInMs = 36000000; // 10 jam dalam milidetik
 // Variabel global battery status pertama boot
 bool hasBeenInitialized = false;  // Untuk mengecek apakah sudah diinisialisasi sebelumnya
 
-
+//variabel untuk mengirim data backup ke server 4 menit sebelum pengiriman data reguler
+unsigned long lastBackupSendTime = 0;
+const long backupSendInterval = 240000; // 4 menit dalam milidetik
 
 
 
@@ -217,6 +219,14 @@ void loop() {
         lastPreDataSendInternetCheckTime = currentMillis;
     }
 
+    // Kirim file backup 4 menit sebelum pengiriman data GPS
+    if (currentMillis - lastBackupSendTime >= backupSendInterval &&
+        currentMillis - lastDisplayTime <= (displayInterval - backupSendInterval) &&
+        !isHandlingLANRequest) {
+        bool backupSuccess = kirimBackupDataKeServer();
+        lastBackupSendTime = currentMillis;
+    }
+
     // Mengirim data GPS jika sudah waktunya
     if (currentMillis - lastDisplayTime >= displayInterval && !isHandlingLANRequest) {
         if (gps.location.isUpdated()) {
@@ -246,6 +256,58 @@ void loop() {
 
     // Menangani request client LAN W5500
     handleLANRequests(); // Pemanggilan fungsi terpisah untuk menangani permintaan LAN
+}
+
+
+bool kirimBackupDataKeServer() {
+    if (!SD.exists("/data_log.csv")) {
+        Serial.println("File data_log.csv tidak ditemukan!");
+        return false;
+    }
+
+    File file = SD.open("/data_log.csv", FILE_READ);
+    if (!file) {
+        Serial.println("Gagal membuka file data_log.csv");
+        return false;
+    }
+
+    // Menghitung ukuran file
+    int fileSize = file.size();
+
+    // Inisialisasi koneksi HTTP
+    kirimPerintahAT("AT+HTTPINIT", "OK", 5000);
+    kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000);
+    kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup.php\"", "OK", 5000);
+    kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/octet-stream\"", "OK", 5000);
+
+    // Mengatur waktu untuk mengirim data
+    String httpDataCommand = "AT+HTTPDATA=" + String(fileSize) + ",10000";
+    if (!kirimPerintahAT(httpDataCommand.c_str(), "DOWNLOAD", 20000)) {
+        Serial.println("Gagal mengatur HTTPDATA");
+        kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP
+        file.close();
+        return false;
+    }
+
+    // Kirim data file
+    while (file.available()) {
+        Serial1.write(file.read());
+    }
+    file.close();
+
+    // Mulai HTTP POST
+    if (!kirimPerintahAT("AT+HTTPACTION=1", "+HTTPACTION: 1,200", 60000)) {
+        Serial.println("Gagal mengirim data ke server");
+        kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP
+        return false;
+    }
+
+    // Jika berhasil, hapus file
+    SD.remove("/data_log.csv");
+    Serial.println("File data_log.csv berhasil dikirim dan dihapus.");
+
+    kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP
+    return true;
 }
 
 void handleLANRequests() {
@@ -458,21 +520,6 @@ void handleDataRequest(EthernetClient &client, String request) {
         }
     }
     client.stop();
-}
-
-// Fungsi untuk menambahkan header CSV jika file kosong atau baru dibuat
-void tambahHeaderCSV() {
-    // Cek apakah file ada dan ukurannya adalah 0
-    if (!SD.exists(namaFileLog) || SD.open(namaFileLog).size() == 0) {
-        File file = SD.open(namaFileLog, FILE_WRITE);
-        if (file) {
-            // Tulis header kolom
-            file.println("Waktu, Latitude, Longitude, Kecepatan, Satelit, HDOP, Kualitas Sinyal");
-            file.close();
-        } else {
-            Serial.println("Gagal membuka file log untuk menambahkan header.");
-        }
-    }
 }
 
 // Fungsi untuk menyimpan data GPS ke kartu microSD dalam format CSV
