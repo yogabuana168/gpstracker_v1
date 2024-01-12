@@ -92,7 +92,7 @@ bool hasBeenInitialized = false;  // Untuk mengecek apakah sudah diinisialisasi 
 
 // Nama file CSV dan server endpoint
 const char* serverName = "adaro.gpscenter.id";
-const char* endpoint = "/api/databackup.php";
+const char* endpoint = "/api/databackup_batch.php";
 
 // Variabel untuk mengatur waktu pengiriman data ke server
 unsigned long lastSendToServerTime = 0;
@@ -222,7 +222,7 @@ void loop() {
         lastPreDataSendInternetCheckTime = currentMillis;
     }
 
-    // Mengirim data GPS jika sudah waktunya
+        // Mengirim data GPS jika sudah waktunya
     if (currentMillis - lastSendToServerTime >= sendInterval && !isHandlingLANRequest) {
         if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
@@ -230,13 +230,14 @@ void loop() {
 
             // Coba kirim data ke server dalam format JSON
             if (kirimDataKeServer(dataGPS)) {
-                // Jika pengiriman berhasil, setel flag untuk memeriksa file CSV
-                shouldCheckCSV = true;
+                Serial.println("Data terkirim ke server.");
+                shouldCheckCSV = true; // Pengiriman berhasil, tandai untuk memeriksa file CSV
                 lastSendToServerTime = currentMillis; // Catat waktu pengiriman
             } else {
-                // Jika pengiriman gagal, simpan data dalam format CSV ke kartu SD
+                Serial.println("Gagal mengirim data ke server, simpan data ke SD card.");
                 String dataCSV = getDataCSV();
-                simpanDataKeSD(dataCSV);
+                simpanDataKeSD(dataCSV); // Pengiriman gagal, simpan data ke SD card
+                shouldCheckCSV = false; // Jangan periksa file CSV setelah gagal mengirim
             }
         }
         lastDisplayTime = currentMillis;
@@ -245,8 +246,9 @@ void loop() {
     // Periksa dan kirim data CSV jika ada setelah satu menit dari pengiriman data sukses
     const long csvSendDelay = 60000; // 1 menit dalam milidetik
     if (shouldCheckCSV && (currentMillis - lastSendToServerTime) >= csvSendDelay) {
-        shouldCheckCSV = false; // Reset flag
+        Serial.println("Memeriksa dan mengirim batch data CSV ke server.");
         kirimBatchDataCSV(); // Kirim batch data CSV ke server
+        shouldCheckCSV = false; // Reset flag setelah memeriksa
     }
 
     // Cek jumlah satelit dan perbarui status LED
@@ -313,7 +315,7 @@ bool kirimDataCSVKeServer(const String& dataCSV) {
 
     // Set parameter HTTP (Ganti dengan URL server Anda)
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup.php\"", "OK", 2000) ||
+        !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup_batch.php\"", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 2000)) {
         return false;
     }
