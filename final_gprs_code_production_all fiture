@@ -99,6 +99,9 @@ unsigned long lastSendToServerTime = 0;
 const long sendInterval = 300000; // 5 menit dalam milidetik
 bool shouldCheckCSV = false; // Apakah perlu memeriksa data CSV
 
+// Deklarasi global di bagian atas
+int jumlahGagalKirim = 0; // Variabel untuk menghitung gagal kirim data
+
 
 void setup() {
     // Inisialisasi komunikasi serial untuk debugging
@@ -222,19 +225,26 @@ void loop() {
         lastPreDataSendInternetCheckTime = currentMillis;
     }
 
-    // Mengirim data GPS jika sudah waktunya
+ 
+    // Logika pengiriman data ke server dan penanganan kegagalan
     if (currentMillis - lastSendToServerTime >= sendInterval && !isHandlingLANRequest) {
         if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
             String dataGPS = getDataGPS();
 
             if (!kirimDataKeServer(dataGPS)) {
-                // Jika pengiriman gagal, simpan data dalam format CSV ke kartu SD
-                String dataCSV = getDataCSV();
-                simpanDataKeSD(dataCSV);
+                jumlahGagalKirim++;
+                if (jumlahGagalKirim >= 3) {
+                    // Jika sudah gagal 3 kali, simpan ke SD card
+                    String dataCSV = getDataCSV();
+                    simpanDataKeSD(dataCSV);
+                    jumlahGagalKirim = 0; // Reset penghitung gagal kirim
+                }
+            } else {
+                // Jika pengiriman berhasil, reset penghitung gagal kirim
+                jumlahGagalKirim = 0;
+                shouldCheckCSV = true; // Setel flag untuk memeriksa file CSV
             }
-            // Jika pengiriman berhasil, setel flag untuk memeriksa file CSV
-            shouldCheckCSV = true;
             lastSendToServerTime = currentMillis;
         }
         lastDisplayTime = currentMillis;
