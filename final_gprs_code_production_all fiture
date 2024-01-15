@@ -102,6 +102,10 @@ bool shouldCheckCSV = false; // Apakah perlu memeriksa data CSV
 // Deklarasi global di bagian atas
 int jumlahGagalKirim = 0; // Variabel untuk menghitung gagal kirim data
 
+// Deklarasi global mencegah penyimpanan data ke microsd setelah gagal kirim dalam > 10 menit
+unsigned long lastCSVSaveTime = 0;
+const unsigned long csvSaveInterval = 600000; // 10 menit dalam milidetik
+
 
 void setup() {
     // Inisialisasi komunikasi serial untuk debugging
@@ -226,28 +230,26 @@ void loop() {
     }
 
  
-    // Logika pengiriman data ke server dan penanganan kegagalan
+    // Logika untuk mengirim data ke server dan menangani kegagalan
     if (currentMillis - lastSendToServerTime >= sendInterval && !isHandlingLANRequest) {
         if (gps.location.isUpdated()) {
             globalSignalQuality = cekSinyal();
-            String dataGPS = getDataGPS();
+            String dataGPS = getDataGPS(); // Deklarasikan dan inisialisasikan dataGPS
 
             if (!kirimDataKeServer(dataGPS)) {
                 jumlahGagalKirim++;
                 if (jumlahGagalKirim >= 3) {
-                    // Jika sudah gagal 3 kali, simpan ke SD card
-                    String dataCSV = getDataCSV();
-                    simpanDataKeSD(dataCSV);
-                    jumlahGagalKirim = 0; // Reset penghitung gagal kirim
+                    String dataCSV = getDataCSV(); // Konversi data ke format CSV
+                    simpanDataKeSD(dataCSV); // Fungsi yang sudah dimodifikasi
+                    jumlahGagalKirim = 0;
                 }
             } else {
-                // Jika pengiriman berhasil, reset penghitung gagal kirim
+                // Jika data berhasil dikirim
                 jumlahGagalKirim = 0;
-                shouldCheckCSV = true; // Setel flag untuk memeriksa file CSV
+                shouldCheckCSV = true; 
             }
             lastSendToServerTime = currentMillis;
         }
-        lastDisplayTime = currentMillis;
     }
 
     // Periksa dan kirim data CSV jika ada setelah satu menit dari pengiriman data sukses
@@ -272,36 +274,50 @@ void loop() {
     handleLANRequests(); // Pemanggilan fungsi terpisah untuk menangani permintaan LAN
 }
 
-
-
 // Fungsi untuk mengirim batch data CSV ke server
 bool kirimBatchDataCSV() {
-  File file = SD.open(namaFileLog, FILE_READ);
-  if (!file) {
-    Serial.println("Gagal membuka file log untuk dibaca.");
-    return;
-  }
+    if (SD.exists(namaFileLog)) {
+        File file = SD.open(namaFileLog, FILE_READ);
+        if (!file) {
+            Serial.println("Gagal membuka file log untuk dibaca.");
+            return false;
+        }
 
-  String dataCSV = "";
-  int barisDibaca = 0;
-  const int barisMaksimum = 300; // Maksimal 10 baris per pengiriman
+        // Cek apakah file kosong
+        if (file.size() == 0) {
+            Serial.println("File log ditemukan tapi kosong.");
+            file.close();
+            return false;
+        }
 
-  while (file.available() && barisDibaca < barisMaksimum) {
-    String line = file.readStringUntil('\n');
-    if (line.length() > 0) {
-      dataCSV += line + "\n";
-      barisDibaca++;
+        String dataCSV = "";
+        int barisDibaca = 0;
+        const int barisMaksimum = 100; // Maksimal 100 bar
+        
+        // Maksimal 100 baris per pengiriman
+        while (file.available() && barisDibaca < barisMaksimum) {
+            String line = file.readStringUntil('\n');
+            if (line.length() > 0) {
+                dataCSV += line + "\n";
+                barisDibaca++;
+            }
+        }
+        file.close();
+
+        // Memproses pengiriman data ke server
+        if (barisDibaca > 0) {
+            if (kirimDataCSVKeServer(dataCSV)) {
+                hapusBarisDariCSV(barisDibaca);
+                return true;
+            } else {
+                Serial.println("Gagal mengirim data ke server.");
+                return false;
+            }
+        } else {
+            Serial.println("Tidak ada data yang perlu dikirim.");
+            return false;
+        }
     }
-  }
-  file.close();
-
-  if (barisDibaca > 0) {
-    if (kirimDataCSVKeServer(dataCSV)) {
-      hapusBarisDariCSV(barisDibaca);
-    }
-  } else {
-    Serial.println("Tidak ada data yang perlu dikirim.");
-  }
 }
 
 // Calculate extra data length for multipart/form-data
@@ -310,10 +326,11 @@ int calculateExtraDataLength() {
     return boundaryHeaders.length();
 }
 
+
 // Fungsi untuk mengirim data CSV ke server
 bool kirimDataCSVKeServer(const String& dataCSV) {
     int extraDataLength = calculateExtraDataLength();
-    
+
     // Pastikan sesi HTTP sebelumnya ditutup
     kirimPerintahAT("AT+HTTPTERM", "OK", 2000);
 
@@ -322,7 +339,7 @@ bool kirimDataCSVKeServer(const String& dataCSV) {
         return false;
     }
 
-    // Set parameter HTTP (Ganti dengan URL server Anda)
+    // Set parameter HTTP
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup_batch.php\"", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 2000)) {
@@ -625,30 +642,51 @@ void tambahHeaderCSV() {
 
 // Fungsi untuk menyimpan data GPS ke kartu microSD dalam format CSV
 void simpanDataKeSD(const String& dataCSV) {
-    File file = SD.open(namaFileLog, FILE_READ);
-    if (file) {
-        // Cek ukuran file
-        unsigned long fileSize = file.size();
-        file.close();
+        unsigned long currentMillis = millis();
+    if (currentMillis - lastCSVSaveTime < csvSaveInterval) {
+        Serial.println("Data telah disimpan baru-baru ini, penyimpanan ke CSV dilewati.");
+        return;
+    }
 
-        // Jika ukuran file kurang dari 23.000 bytes, tambahkan data
-        if (fileSize < 23000) {
-            file = SD.open(namaFileLog, FILE_WRITE);
-            if (file) {
-                Serial.println("Menyimpan data ke SD card...");
-                file.println(dataCSV); // Tambahkan data CSV ke akhir file
-                file.close();
-                Serial.println("Data berhasil disimpan ke SD card.");
+    // Cek apakah file ada
+    if (SD.exists(namaFileLog)) {
+        File file = SD.open(namaFileLog, FILE_READ);
+        if (file) {
+            unsigned long fileSize = file.size();
+            file.close();
+
+            // Jika ukuran file kurang dari 6000 bytes, tambahkan data
+            if (fileSize < 6000) {
+                file = SD.open(namaFileLog, FILE_WRITE);
+                if (file) {
+                    Serial.println("Menyimpan data ke SD card...");
+                    file.println(dataCSV); // Tambahkan data CSV ke akhir file
+                    file.close();
+                    Serial.println("Data berhasil disimpan ke SD card.");
+                } else {
+                    Serial.println("Gagal membuka file di SD card untuk penulisan.");
+                }
             } else {
-                Serial.println("Gagal membuka file di SD card untuk penulisan.");
+                Serial.println("Ukuran file telah mencapai batas maksimum. Penyimpanan ditolak.");
             }
         } else {
-            Serial.println("Ukuran file telah mencapai batas maksimum. Penyimpanan ditolak.");
+            Serial.println("Gagal membuka file di SD card untuk pembacaan.");
         }
     } else {
-        Serial.println("Gagal membuka file di SD card untuk pembacaan.");
+        // Jika file tidak ada, buat file baru dan tambahkan data
+        File file = SD.open(namaFileLog, FILE_WRITE);
+        if (file) {
+            Serial.println("Membuat file baru dan menyimpan data ke SD card...");
+            file.println(dataCSV); // Tambahkan data CSV ke file baru
+            file.close();
+            Serial.println("Data berhasil disimpan ke SD card pada file baru.");
+        } else {
+            Serial.println("Gagal membuat file baru di SD card.");
+        }
     }
+    lastCSVSaveTime = currentMillis; // Perbarui waktu terakhir penyimpanan
 }
+
 
 void updateLedState(bool redState, bool blueState) {
     if (lastLedStateRed != redState) {
@@ -733,35 +771,6 @@ void rekoneksi() {
     Serial.println("Rekoneksi selesai.");
 }
 
-// Fungsi untuk menampilkan data GPS
-void tampilkanDataGPS() {
-    // Penyusunan data GPS ke format JSON
-    StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 101;
-    jsonDoc["datetime"] = getFormattedDate(gps);
-    jsonDoc["lat"] = gps.location.lat();
-    jsonDoc["lng"] = gps.location.lng();
-    jsonDoc["speed_knots"] = gps.speed.knots();
-    jsonDoc["course"] = gps.course.deg();
-    // jsonDoc["altitude"] = gps.altitude.meters();
-    jsonDoc["satellites"] = gps.satellites.value();
-    jsonDoc["HDOP"] = gps.hdop.value();    
-    jsonDoc["sinyal"] = globalSignalQuality; // Use the globalSignalQuality variable
-    jsonDoc["alarm"] = powerStatusIndicator; // Tambahkan status power ke JSON
-
-    String jsonString;
-    serializeJson(jsonDoc, jsonString);
-
-    // Cek kualitas sinyal sebelum mengirim data
-    if (!cekSinyal()) {
-        // Jika sinyal buruk, simpan data langsung ke microSD
-        simpanDataKeSD(jsonString);
-        return;
-    }
-    // Jika sinyal baik, kirim data ke server
-    kirimDataKeServer(jsonString);
-
-}
 
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format JSON
 String getDataGPS() {
@@ -789,7 +798,6 @@ String getDataGPS() {
 
     return jsonString;
 }
-
 
 // Fungsi untuk mengirim data ke server melalui HTTP POST
 bool kirimDataKeServer(const String& dataJSON) {
@@ -860,14 +868,8 @@ bool kirimDataKeServer(const String& dataJSON) {
         attemptCount++;
     }
 
-    // // Jika setelah 3 kali percobaan data tidak terkirim, inisialisasi ulang SIM808
-    // if (!isDataSent) {
-    //     inisialisasiSIM808();
-    // }
-
     return isDataSent;
 }
-
 
 
 // Fungsi untuk memeriksa status koneksi GPRS berdasarkan keberadaan alamat IP
