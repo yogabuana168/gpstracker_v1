@@ -329,6 +329,12 @@ int calculateExtraDataLength() {
 
 // Fungsi untuk mengirim data CSV ke server
 bool kirimDataCSVKeServer(const String& dataCSV) {
+        int signalQuality = cekSinyal();
+    if (signalQuality < 10) {
+        Serial.println("Kualitas sinyal tidak cukup untuk mengirim data backup.");
+        return false;
+    }
+
     int extraDataLength = calculateExtraDataLength();
 
     // Pastikan sesi HTTP sebelumnya ditutup
@@ -381,60 +387,56 @@ bool kirimDataCSVKeServer(const String& dataCSV) {
 }
 
 
-// Fungsi untuk menghapus baris dari file CSV setelah pengiriman
 void hapusBarisDariCSV(int jumlahBaris) {
-  // Membuat file sementara untuk menampung data
-  const char* tempFileName = "/temp_log.csv";
-  SD.remove(tempFileName); // Hapus file sementara jika ada
+    const char* tempFileName = "/temp_log.csv";
+    SD.remove(tempFileName); // Hapus file sementara jika ada
 
-  File fileOriginal = SD.open(namaFileLog, FILE_READ);
-  File fileTemp = SD.open(tempFileName, FILE_WRITE);
+    File fileOriginal = SD.open(namaFileLog, FILE_READ);
+    File fileTemp = SD.open(tempFileName, FILE_WRITE);
 
-  if (!fileOriginal) {
-    Serial.println("Gagal membuka file log asli.");
-    return;
-  }
-
-  if (!fileTemp) {
-    Serial.println("Gagal membuka file log sementara.");
-    fileOriginal.close();
-    return;
-  }
-
-  int barisDihapus = 0;
-  while (fileOriginal.available()) {
-    String line = fileOriginal.readStringUntil('\n');
-    if (barisDihapus < jumlahBaris) {
-      // Skip baris yang dihapus
-      barisDihapus++;
-    } else {
-      // Tulis ke file sementara
-      fileTemp.println(line);
+    if (!fileOriginal) {
+        Serial.println("Gagal membuka file log asli.");
+        return;
     }
-  }
-  fileOriginal.close();
-  fileTemp.close();
-
-    // Remove the original file and then rename the temporary file
-    if (SD.exists(namaFileLog)) {
-        SD.remove(namaFileLog);
+    if (!fileTemp) {
+        Serial.println("Gagal membuka file log sementara.");
+        fileOriginal.close();
+        return;
     }
 
-    // Rename by actually creating a new file and copying the contents
-    File oldFile = SD.open(tempFileName, FILE_READ);
-    File newFile = SD.open(namaFileLog, FILE_WRITE);
-
-    if (oldFile && newFile) {
-        while (oldFile.available()) {
-            newFile.write(oldFile.read());
+    int barisDihapus = 0;
+    while (fileOriginal.available()) {
+        String line = fileOriginal.readStringUntil('\n');
+        if (barisDihapus < jumlahBaris) {
+            barisDihapus++;
+        } else {
+            fileTemp.println(line);
         }
-        oldFile.close();
-        newFile.close();
-        SD.remove(tempFileName); // Clean up the temp file
     }
+    fileOriginal.close();
+    fileTemp.close();
 
-    Serial.print(jumlahBaris);
-    Serial.println(" baris dihapus dari file log.");
+    // Hapus file asli
+    SD.remove(namaFileLog);
+
+    // Salin dari file sementara ke file baru
+    fileOriginal = SD.open(tempFileName, FILE_READ);
+    fileTemp = SD.open(namaFileLog, FILE_WRITE);
+    if (fileOriginal && fileTemp) {
+        while (fileOriginal.available()) {
+            fileTemp.write(fileOriginal.read());
+        }
+        fileOriginal.close();
+        fileTemp.close();
+
+    // Hapus file sementara setelah menyalin
+    SD.remove(tempFileName);
+    Serial.println(String(jumlahBaris) + " baris dihapus dari file log.");
+    } else {
+        Serial.println("Gagal menyalin data ke file log baru.");
+        fileOriginal.close();
+        fileTemp.close();
+    }
 }
 
 
