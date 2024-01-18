@@ -122,17 +122,7 @@ void setup() {
     Serial.print("Server IP: ");
     Serial.println(Ethernet.localIP());
 
-    //inisial SD card module
-    Serial.println("Inisialisasi SD card...");
 
-    pinMode(chipSelect, OUTPUT);
-
-    if (!SD.begin(chipSelect)) {
-        Serial.println("Inisialisasi SD card gagal!");
-        // Jangan kembalikan fungsi; lanjutkan dengan inisialisasi lainnya
-    } else {
-        Serial.println("Inisialisasi SD card berhasil.");
-    }
 
         // Mengatur persentase baterai menjadi 50% pada boot pertama
     if (!hasBeenInitialized) {
@@ -153,6 +143,19 @@ void setup() {
     // Mengatur notifikasi SMS baru ke output serial
     kirimPerintahAT("AT+CNMI=2,2,0,0,0", "OK", 5000);
     Serial.println("Menginisialisasi modul GPS...");
+
+    //inisial SD card module
+    Serial.println("Inisialisasi SD card...");
+
+    pinMode(chipSelect, OUTPUT);
+
+    if (!SD.begin(chipSelect)) {
+        Serial.println("Inisialisasi SD card gagal!");
+    // Jangan kembalikan fungsi; lanjutkan dengan inisialisasi lainnya
+    } else {
+        Serial.println("Inisialisasi SD card berhasil.");
+    }
+
     ss.begin(9600); // Mulai komunikasi dengan modul GPS
 
     pinMode(BlueLEDPin, OUTPUT); // Inisialisasi pin LED biru
@@ -492,7 +495,7 @@ String ekstrakNomorPengirim(String header) {
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format CSV
 String getDataCSV() {
     String dataCSV;    
-    dataCSV += "101,"; // Ganti dengan variabel yang sesuai jika device_id dinamis
+    dataCSV += "7,"; // Ganti dengan variabel yang sesuai jika device_id dinamis
     dataCSV += convertToUTC8(gps) + ","; // Gunakan waktu UTC+8
     dataCSV += String(gps.location.lat(), 6) + ",";
     dataCSV += String(gps.location.lng(), 6) + ",";
@@ -778,7 +781,7 @@ void rekoneksi() {
 String getDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 101;
+    jsonDoc["device_id"] = 7;
     jsonDoc["datetime"] = convertToUTC8(gps); // Gunakan waktu yang sudah diubah ke UTC+8
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
@@ -1072,7 +1075,7 @@ void kirimInfoGPS(String nomorTujuan) {
     String datetime = convertToUTC8(gps); // Mendapatkan datetime dalam UTC+8
 
     // Isi SMS
-    String isiSMS = "Device_ID: 101\n";
+    String isiSMS = "Device_ID: 7\n";
     isiSMS += "Datetime: " + datetime + "\n"; // Menambahkan datetime UTC+8
     isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
     isiSMS += "Speed: " + speed + " Knots\n";
