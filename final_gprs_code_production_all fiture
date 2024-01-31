@@ -228,7 +228,8 @@ void loop() {
     // Pengecekan koneksi internet 2 menit sebelum mengirim data GPS
     if ((currentMillis - lastPreDataSendInternetCheckTime) >= (displayInterval - 120000) && 
         (currentMillis - lastDisplayTime) >= (displayInterval - 120000) && 
-        !isHandlingLANRequest) {        
+        !isHandlingLANRequest) {
+        cekSinyal();
 
         // Melanjutkan proses jika kualitas sinyal di atas 6
         if (globalSignalQuality > 6) {
@@ -736,29 +737,19 @@ bool cekKoneksiInternet() {
     } else {
         Serial.println("Gagal melakukan HTTP GET request.");
         kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP jika gagal
-
+        
         // Cek sinyal
         cekSinyal(); // Memperbarui globalSignalQuality
-        if (globalSignalQuality < 6) {
-            Serial.println("Kualitas sinyal terlalu rendah untuk melanjutkan.");
-            return false;
-        }
-
-        // Memeriksa status registrasi jaringan
-        Serial.println("Memeriksa status registrasi jaringan GSM...");
-        if (cekRegistrasiJaringan()) {
-            Serial.println("Modul terdaftar di jaringan GSM, mencoba koneksi GPRS...");
-            if (!koneksiGPRS()) {
-                Serial.println("Gagal melakukan koneksi GPRS. Menginisialisasi ulang SIM808...");
-                inisialisasiSIM808();
-                return false;
-            }
-            return true;
-        } else {
-            Serial.println("Modul tidak terdaftar di jaringan GSM. Menginisialisasi ulang SIM808...");
+        
+        if (globalSignalQuality > 7) {
+            // Jika kualitas sinyal lebih dari 7, lakukan inisialisasi ulang SIM808
+            Serial.println("Kualitas sinyal cukup baik. Melakukan inisialisasi ulang SIM808...");
             inisialisasiSIM808();
-            return false;
+        } else {
+            Serial.println("Kualitas sinyal terlalu rendah untuk melanjutkan.");
         }
+        
+        return false;
     }
 }
 
