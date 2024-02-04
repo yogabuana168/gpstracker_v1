@@ -107,6 +107,12 @@ unsigned long lastCSVSaveTime = 0;
 const unsigned long csvSaveInterval = 600000; // 10 menit dalam milidetik
 
 
+// Global variables
+bool needInternetCheck = true; // Variabel untuk menentukan apakah perlu pengecekan internet
+
+bool needReinit = false; // Tambahkan ini di bagian deklarasi variabel global
+
+
 void setup() {
     // Inisialisasi komunikasi serial untuk debugging
     Serial.begin(9600);
@@ -225,20 +231,6 @@ void loop() {
         }
     }
 
-    // Pengecekan koneksi internet 2 menit sebelum mengirim data GPS
-    if ((currentMillis - lastPreDataSendInternetCheckTime) >= (displayInterval - 120000) && 
-        (currentMillis - lastDisplayTime) >= (displayInterval - 120000) && 
-        !isHandlingLANRequest) {
-        cekSinyal();
-
-        // Melanjutkan proses jika kualitas sinyal di atas 6
-        if (globalSignalQuality > 6) {
-            cekKoneksiInternet();
-        }
-
-        lastPreDataSendInternetCheckTime = currentMillis;
-    }
-
  
     // Logika untuk mengirim data ke server dan menangani kegagalan
     if (currentMillis - lastSendToServerTime >= sendInterval && !isHandlingLANRequest) {
@@ -271,6 +263,12 @@ void loop() {
             }
             lastSendToServerTime = currentMillis;
         }
+    }
+
+    // Jika perlu inisialisasi ulang SIM808 setelah respons bukan 200
+    if (needReinit) {
+        inisialisasiSIM808();
+        needReinit = false; // Reset bendera
     }
 
     // Periksa dan kirim data CSV jika ada setelah satu menit dari pengiriman data sukses
@@ -749,7 +747,7 @@ bool cekKoneksiInternet() {
             Serial.println("Kualitas sinyal terlalu rendah untuk melanjutkan.");
         }
         
-        return false;
+        return true; // atau false berdasarkan hasil koneksi
     }
 }
 
@@ -814,11 +812,11 @@ String getDataGPS() {
     return jsonString;
 }
 
-// Fungsi untuk mengirim data ke server melalui HTTP POST
 bool kirimDataKeServer(const String& dataJSON) {
     int dataLength = dataJSON.length();
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
     bool isDataSent = false;
+    int statusCode = -1; // Deklarasi variabel statusCode di luar loop
 
     // Pastikan tidak ada sesi HTTP yang masih berjalan
     if (!kirimPerintahAT("AT+HTTPTERM", "OK", 2000)) {
@@ -854,7 +852,7 @@ bool kirimDataKeServer(const String& dataJSON) {
                 String line = Serial1.readStringUntil('\n');
                 if (line.startsWith("+HTTPACTION:")) {
                     Serial.println(line);
-                    int statusCode = line.substring(line.indexOf(",") + 1, line.lastIndexOf(",")).toInt();
+                    statusCode = line.substring(line.indexOf(",") + 1, line.lastIndexOf(",")).toInt();
                     if (statusCode == 200) {
                         Serial.println("HTTP POST successful with status code 200.");
                         isDataSent = true;
@@ -863,6 +861,7 @@ bool kirimDataKeServer(const String& dataJSON) {
                     } else {
                         Serial.print("HTTP POST failed with status code: ");
                         Serial.println(statusCode);
+                        // Tidak perlu inisialisasi ulang di sini, hanya setelah loop
                         break;
                     }
                 }
@@ -870,8 +869,13 @@ bool kirimDataKeServer(const String& dataJSON) {
         }
     }
 
+    if (statusCode != 200) {
+        // Jika status code bukan 200, tandai bahwa inisialisasi ulang diperlukan
+        needReinit = true;
+    }
     return isDataSent;
 }
+
 
 
 
