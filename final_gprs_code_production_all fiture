@@ -367,7 +367,7 @@ bool kirimDataCSVKeServer(const String& dataCSV) {
     // Set parameter HTTP
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup_batch.php\"", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 2000)) {
+        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 5000)) {
         return false;
     }
 
@@ -728,7 +728,7 @@ bool cekKoneksiInternet() {
     if (kirimPerintahAT("AT+HTTPINIT", "OK", 5000) &&
         kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000) &&
         kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://www.google.com\"", "OK", 5000) &&
-        kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200", 25000)) {
+        kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200", 20000)) {
         Serial.println("HTTP GET request berhasil, terhubung ke internet!");
         kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP
         return true;
@@ -831,7 +831,7 @@ bool kirimDataKeServer(const String& dataJSON) {
 
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/data.php\"", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000)) {
+        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 5000)) {
         return false;
     }
 
