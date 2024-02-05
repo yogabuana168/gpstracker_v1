@@ -242,7 +242,7 @@ void loop() {
                 jumlahGagalKirim++;
 
                 // Cek kualitas sinyal setiap kali pengiriman data gagal
-                if (globalSignalQuality > 8) {
+                if (globalSignalQuality > 6) {
                     inisialisasiSIM808(); // Inisialisasi ulang SIM808 jika sinyal bagus
                 }
 
@@ -367,7 +367,7 @@ bool kirimDataCSVKeServer(const String& dataCSV) {
     // Set parameter HTTP
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/databackup_batch.php\"", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 5000)) {
+        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"multipart/form-data; boundary=XYZ\"", "OK", 2000)) {
         return false;
     }
 
@@ -511,7 +511,7 @@ String ekstrakNomorPengirim(String header) {
 // Fungsi untuk mendapatkan data GPS dan menyusunnya dalam format CSV
 String getDataCSV() {
     String dataCSV;    
-    dataCSV += "1000,"; // Ganti dengan variabel yang sesuai jika device_id dinamis
+    dataCSV += "76,"; // Ganti dengan variabel yang sesuai jika device_id dinamis
     dataCSV += convertToUTC8(gps) + ","; // Gunakan waktu UTC+8
     dataCSV += String(gps.location.lat(), 6) + ",";
     dataCSV += String(gps.location.lng(), 6) + ",";
@@ -728,7 +728,7 @@ bool cekKoneksiInternet() {
     if (kirimPerintahAT("AT+HTTPINIT", "OK", 5000) &&
         kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 5000) &&
         kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://www.google.com\"", "OK", 5000) &&
-        kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200", 20000)) {
+        kirimPerintahAT("AT+HTTPACTION=0", "+HTTPACTION: 0,200", 25000)) {
         Serial.println("HTTP GET request berhasil, terhubung ke internet!");
         kirimPerintahAT("AT+HTTPTERM", "OK", 5000); // Mengakhiri sesi HTTP
         return true;
@@ -789,7 +789,7 @@ void rekoneksi() {
 String getDataGPS() {
     // Penyusunan data GPS ke format JSON
     StaticJsonDocument<bufferSize> jsonDoc;
-    jsonDoc["device_id"] = 1000;
+    jsonDoc["device_id"] = 76;
     jsonDoc["datetime"] = convertToUTC8(gps); // Gunakan waktu yang sudah diubah ke UTC+8
     jsonDoc["lat"] = gps.location.lat();
     jsonDoc["lng"] = gps.location.lng();
@@ -831,7 +831,7 @@ bool kirimDataKeServer(const String& dataJSON) {
 
     if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
         !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro.gpscenter.id/api/data.php\"", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 5000)) {
+        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 2000)) {
         return false;
     }
 
@@ -1077,7 +1077,7 @@ void kirimInfoGPS(String nomorTujuan) {
     String datetime = convertToUTC8(gps); // Mendapatkan datetime dalam UTC+8
 
     // Isi SMS
-    String isiSMS = "Device_ID: 1000\n";
+    String isiSMS = "Device_ID: 76\n";
     isiSMS += "Datetime: " + datetime + "\n"; // Menambahkan datetime UTC+8
     isiSMS += "http://maps.google.com/maps?q=loc:" + lat + "," + lng + "\n";
     isiSMS += "Speed: " + speed + " Knots\n";
