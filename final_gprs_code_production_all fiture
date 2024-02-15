@@ -816,7 +816,7 @@ bool kirimDataKeServer(const String& dataJSON) {
     int dataLength = dataJSON.length();
     String httpDataCommand = "AT+HTTPDATA=" + String(dataLength) + ",10000";
     bool isDataSent = false;
-    int statusCode = -1; // Deklarasi variabel statusCode di luar loop
+    int statusCode = -1;
 
     // Pastikan tidak ada sesi HTTP yang masih berjalan
     if (!kirimPerintahAT("AT+HTTPTERM", "OK", 2000)) {
@@ -829,10 +829,21 @@ bool kirimDataKeServer(const String& dataJSON) {
         return false;
     }
 
-    if (!kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro5.gpscenter.id/api/data.php\"", "OK", 5000) ||
-        !kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 15000)) {
-        return false;
+    // Cobalah mengirim setiap perintah AT hingga tiga kali
+    bool success = false;
+    for (int attempt = 0; attempt < 3 && !success; attempt++) {
+        if (kirimPerintahAT("AT+HTTPPARA=\"CID\",1", "OK", 2000) &&
+            kirimPerintahAT("AT+HTTPPARA=\"URL\",\"http://adaro5.gpscenter.id/api/data.php\"", "OK", 5000) &&
+            kirimPerintahAT("AT+HTTPPARA=\"CONTENT\",\"application/json\"", "OK", 15000)) {
+            success = true;
+        } else {
+            delay(5000); // Tunggu sebelum mencoba lagi
+        }
+    }
+
+    if (!success) {
+        Serial.println("Gagal mengonfigurasi HTTP setelah 3 percobaan.");
+        // Lanjutkan proses walaupun gagal
     }
 
     // Siapkan untuk mengirim data
